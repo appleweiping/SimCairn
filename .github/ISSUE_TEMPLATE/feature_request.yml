@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a focused manifest, adapter, or orchestration capability
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: Proposed public contract
+      description: Include fingerprint, cache, recovery, and compatibility implications.
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Deterministic acceptance tests
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: The proposal does not require shell command strings.
+          required: true
+        - label: Example inputs are original and safe to publish.
+          required: true

@@ -1,0 +1,8 @@
+* Synthetic RC low-pass deck for the SimCairn example
+.param R_VALUE=@{R} C_VALUE=@{C}
+Vinput input 0 AC 1
+Rfilter input output {R_VALUE}
+Cfilter output 0 {C_VALUE}
+.ac dec 20 1 1g
+.measure ac cutoff_hz when vdb(output)=-3
+.end

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python-version: "3.11", quality: true}
+          - {os: ubuntu-latest, python-version: "3.12", quality: false}
+          - {os: ubuntu-latest, python-version: "3.13", quality: false}
+          - {os: ubuntu-latest, python-version: "3.14", quality: false}
+          - {os: windows-latest, python-version: "3.11", quality: false}
+          - {os: windows-latest, python-version: "3.14", quality: false}
+          - {os: macos-latest, python-version: "3.11", quality: false}
+          - {os: macos-latest, python-version: "3.14", quality: false}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - if: matrix.quality
+        run: ruff check . && ruff format --check .
+      - if: matrix.quality
+        run: mypy --python-version 3.11 src
+      - if: matrix.quality
+        run: bandit -q -r src
+      - run: pytest --cov=simcairn --cov-report=term-missing
+      - if: matrix.quality
+        run: python -m build

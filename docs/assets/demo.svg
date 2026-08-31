@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="500" viewBox="0 0 1500 500" role="img" aria-labelledby="title description">
+  <title id="title">SimCairn real command-line demonstration</title>
+  <desc id="description">A terminal capture of the example manifest validation and completed run status.</desc>
+  <rect width="1500" height="500" rx="14" fill="#111827"/>
+  <rect width="1500" height="42" rx="14" fill="#1f2937"/>
+  <circle cx="24" cy="21" r="6" fill="#fb7185"/>
+  <circle cx="46" cy="21" r="6" fill="#fbbf24"/>
+  <circle cx="68" cy="21" r="6" fill="#34d399"/>
+  <text x="750" y="27" text-anchor="middle" fill="#cbd5e1" font-family="Consolas, 'Courier New', monospace" font-size="15">SimCairn — real CLI output</text>
+  <g font-family="Consolas, 'Courier New', monospace" font-size="17">
+    <text x="24" y="76" fill="#93c5fd">PS&gt; <tspan fill="#f8fafc">uv run simcairn validate examples\rc_sweep\simcairn.toml</tspan></text>
+    <text x="24" y="104" fill="#a7f3d0">valid manifest: 19 activities, plan ba21ae3989cb</text>
+    <text x="24" y="148" fill="#93c5fd">PS&gt; <tspan fill="#f8fafc">uv run simcairn status ba21ae3989cb-0001 --store build\demo-store</tspan></text>
+    <text x="24" y="180" fill="#e2e8f0">{</text>
+    <text x="24" y="206" fill="#e2e8f0">  "counts": {</text>
+    <text x="24" y="232" fill="#e2e8f0">    "succeeded": 19</text>
+    <text x="24" y="258" fill="#e2e8f0">  },</text>
+    <text x="24" y="284" fill="#e2e8f0">  "events": 40,</text>
+    <text x="24" y="310" fill="#e2e8f0">  "run_id": "ba21ae3989cb-0001",</text>
+    <text x="24" y="336" fill="#e2e8f0">  "status": "succeeded"</text>
+    <text x="24" y="362" fill="#e2e8f0">}</text>
+    <text x="24" y="400" fill="#93c5fd">PS&gt; <tspan fill="#f8fafc">$cached = uv run simcairn run examples\rc_sweep\simcairn.toml --store build\demo-store | ConvertFrom-Json</tspan></text>
+    <text x="24" y="430" fill="#93c5fd">PS&gt; <tspan fill="#f8fafc">$cached.counts | ConvertTo-Json -Compress</tspan></text>
+    <text x="24" y="458" fill="#a7f3d0">{"cached":19}</text>
+  </g>
+  <text x="1470" y="480" text-anchor="end" fill="#64748b" font-family="Consolas, 'Courier New', monospace" font-size="13">captured from examples/rc_sweep</text>
+</svg>

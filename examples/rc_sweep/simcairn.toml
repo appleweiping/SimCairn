@@ -1,0 +1,36 @@
+version = 1
+
+[simulator]
+adapter = "mock-rc"
+
+[template]
+deck = "rc_lowpass.sp.tmpl"
+inputs = []
+
+[sweep]
+mode = "product"
+R = ["1k", "2k", "4k"]
+C = ["1n", "2n"]
+
+[run]
+timeout_seconds = 20
+jobs = 3
+fail_fast = false
+
+[run.resources]
+simulator = 2
+
+[[measure]]
+name = "cutoff_hz"
+source = "metrics.json"
+field = "cutoff_hz"
+
+[[measure]]
+name = "resistance_ohm"
+source = "metrics.json"
+field = "resistance_ohm"
+
+[[measure]]
+name = "capacitance_f"
+source = "metrics.json"
+field = "capacitance_f"
