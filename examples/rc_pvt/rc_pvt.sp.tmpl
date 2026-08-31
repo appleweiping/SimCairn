@@ -1,0 +1,15 @@
+* SimCairn RC PVT/parameter reference; no foundry models are used.
+.param R_NOM=@{R} C_VALUE=@{C}
+.param PROCESS_SCALE=@{PROCESS_SCALE} TEMP_C=@{TEMP_C} VDD_VALUE=@{VDD}
+.param R_EFF='R_NOM*PROCESS_SCALE*(1+0.0039*(TEMP_C-27))'
+.temp {TEMP_C}
+Vinput input 0 AC 1
+Vcorner corner_supply 0 {VDD_VALUE}
+Rfilter input output {R_EFF}
+Cfilter output 0 {C_VALUE}
+.ac dec 100 1 1g
+.print ac vm(output)
+.measure ac cutoff_hz when vm(output)=0.7071067811865476
+.measure ac resistance_ohm param='R_EFF'
+.measure ac capacitance_f param='C_VALUE'
+.end

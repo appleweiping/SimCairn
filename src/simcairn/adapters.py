@@ -79,10 +79,16 @@ class NgspiceAdapter:
             raise ManifestError(
                 f"cannot identify ngspice executable {self.executable!r}: {error}"
             ) from error
-        version_line = (completed.stdout or completed.stderr).splitlines()
-        if completed.returncode != 0 or not version_line:
+        output = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
+        version = None
+        for line in output.splitlines():
+            match = re.search(r"\bngspice-(\d+(?:\.\d+)*)\b", line, re.IGNORECASE)
+            if match is not None:
+                version = match.group(1)
+                break
+        if completed.returncode != 0 or version is None:
             raise ManifestError(f"ngspice executable {self.executable!r} did not return a version")
-        return "simcairn-ngspice/1:" + version_line[0].strip()
+        return f"simcairn-ngspice/2:ngspice-{version}"
 
     def command(self, sandbox: Path, payload: dict[str, Any]) -> list[str]:
         del sandbox, payload
@@ -106,8 +112,12 @@ class NgspiceAdapter:
             match = pattern.search(text)
             if match:
                 metrics[str(field)] = float(match.group(1))
-        if not metrics:
-            raise AdapterError("ngspice output contains none of the requested measurements")
+        requested = [str(field) for field in payload.get("measure_fields", [])]
+        missing = [field for field in requested if field not in metrics]
+        if missing:
+            raise AdapterError(
+                "ngspice output is missing requested measurements: " + ", ".join(missing)
+            )
         (sandbox / "metrics.json").write_text(
             json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )

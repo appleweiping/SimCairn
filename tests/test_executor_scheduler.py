@@ -2,10 +2,12 @@ import asyncio
 import json
 import sys
 from dataclasses import replace
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
+from simcairn import __version__
 from simcairn.adapters import AdapterError
 from simcairn.api import Runner
 from simcairn.cli import main
@@ -14,9 +16,16 @@ from simcairn.manifest import load_manifest
 from simcairn.model import Activity, ActivityOutcome, canonical_json
 from simcairn.planner import compile_plan
 from simcairn.scheduler import execute_plan
-from simcairn.store import ArtifactStore
+from simcairn.store import ArtifactStore, StoreError
 
 EXAMPLE = Path(__file__).parents[1] / "examples" / "rc_sweep" / "simcairn.toml"
+
+
+def test_cli_version_uses_installed_distribution(capsys):
+    with pytest.raises(SystemExit) as result:
+        main(["--version"])
+    assert result.value.code == 0
+    assert capsys.readouterr().out.strip() == f"simcairn {__version__}"
 
 
 def test_real_mock_subprocess_run_collect_and_cache(tmp_path):
@@ -36,6 +45,23 @@ def test_real_mock_subprocess_run_collect_and_cache(tmp_path):
     assert second.counts == {"cached": 19}
     assert runner.collect(second.run_id) == rows
     assert runner.status(second.run_id)["status"] == "succeeded"
+
+
+def test_collect_strictly_rejects_ambiguous_results_json(tmp_path):
+    runner = Runner(tmp_path / "store")
+    report = runner.run(load_manifest(EXAMPLE))
+    plan = runner.store.load_plan(report.run_id)
+    target = runner.store.cache_path(plan.activities[-1].id)
+    results = target / "files" / "results.json"
+    results.write_text('[{"R":"1k","R":"2k"}]\n', encoding="utf-8")
+    manifest_path = target / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    record = next(item for item in manifest["artifacts"] if item["name"] == "results.json")
+    content = results.read_bytes()
+    record.update(size=len(content), sha256=sha256(content).hexdigest())
+    manifest_path.write_text(canonical_json(manifest), encoding="utf-8")
+    with pytest.raises(StoreError, match="duplicate"):
+        runner.collect(report.run_id)
 
 
 def test_resume_reuses_verified_completed_artifacts(tmp_path):
@@ -209,6 +235,26 @@ def test_cli_validate_plan_run_status_collect_explain_and_resume(tmp_path, capsy
     assert json.loads(capsys.readouterr().out)["counts"] == {"cached": 19}
 
 
+def test_offline_pvt_workflow_emits_strict_regression_bundle(tmp_path):
+    manifest = load_manifest(EXAMPLE.parent.parent / "rc_pvt" / "offline-mock.toml")
+    store = ArtifactStore(tmp_path / "pvt-store")
+    report = Runner(store.root).run(manifest)
+    assert report.status == "succeeded"
+    plan = store.load_plan(report.run_id)
+    aggregate = plan.activities[-1]
+    path = store.cache_path(aggregate.id) / "files" / "regression-bundle.json"
+    bundle = json.loads(path.read_text(encoding="utf-8"))
+    assert bundle["schema_version"] == 2
+    assert bundle["run"]["contract"] == "regressistor.measurement-bundle/2"
+    assert len(bundle["points"]) == 32
+    assert set(bundle["points"][0]) == {"case", "sample", "metrics"}
+    assert bundle["points"][0]["metrics"]["cutoff_hz"]["unit"] == "Hz"
+    golden = EXAMPLE.parent.parent / "rc_pvt" / "offline-golden.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == json.loads(
+        golden.read_text(encoding="utf-8")
+    )
+
+
 def test_cli_errors_are_status_two_and_cache_miss_is_one(tmp_path, capsys):
     assert main(["validate", str(tmp_path / "missing.toml")]) == 2
     assert "simcairn:" in capsys.readouterr().err
@@ -334,6 +380,16 @@ def _extraction_activity(payload):
         ("not-json", {"name": "gain", "source": "metrics.json", "field": "gain"}, "cannot read"),
         ("[]", {"name": "gain", "source": "metrics.json", "field": "gain"}, "not a JSON object"),
         (
+            '{"gain": 1, "gain": 2}',
+            {"name": "gain", "source": "metrics.json", "field": "gain"},
+            "duplicate",
+        ),
+        (
+            '{"gain": NaN}',
+            {"name": "gain", "source": "metrics.json", "field": "gain"},
+            "non-finite JSON",
+        ),
+        (
             '{"gain": true}',
             {"name": "gain", "source": "metrics.json", "field": "gain"},
             "non-finite",
@@ -366,7 +422,18 @@ def test_aggregate_rejects_malformed_dependency_output(tmp_path):
         ("results.json", "results.csv"),
         (),
         5,
-        canonical_json({}),
+        canonical_json(
+            {
+                "measures": [
+                    {
+                        "name": "cutoff_hz",
+                        "source": "metrics.json",
+                        "field": "cutoff_hz",
+                        "unit": "Hz",
+                    }
+                ]
+            }
+        ),
     )
     with pytest.raises(ExecutionError, match="cannot aggregate"):
         ActivityExecutor._aggregate(activity, tmp_path)
@@ -379,6 +446,14 @@ def test_aggregate_rejects_malformed_dependency_output(tmp_path):
         ({"point_index": True, "point": {}, "metrics": {}}, "point_index"),
         ({"point_index": 0, "point": [], "metrics": {}}, "point is not an object"),
         ({"point_index": 0, "point": {}, "metrics": []}, "metrics is not an object"),
+        (
+            {"point_index": 0, "point": {}, "metrics": {"unexpected": 1.0}},
+            "finite measures",
+        ),
+        (
+            {"point_index": 0, "point": {}, "metrics": {"cutoff_hz": float("nan")}},
+            "non-finite JSON",
+        ),
     ],
 )
 def test_aggregate_validates_dependency_schema(tmp_path, value, message):
@@ -395,7 +470,18 @@ def test_aggregate_validates_dependency_schema(tmp_path, value, message):
         ("results.json", "results.csv"),
         (),
         5,
-        canonical_json({}),
+        canonical_json(
+            {
+                "measures": [
+                    {
+                        "name": "cutoff_hz",
+                        "source": "metrics.json",
+                        "field": "cutoff_hz",
+                        "unit": "Hz",
+                    }
+                ]
+            }
+        ),
     )
     with pytest.raises(ExecutionError, match=message):
         ActivityExecutor._aggregate(activity, tmp_path)

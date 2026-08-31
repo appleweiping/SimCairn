@@ -1,0 +1,279 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify-ci:
+    name: Require main ancestry and successful CI
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify tag commit is reachable from main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "release commit is not reachable from origin/main" >&2
+            exit 1
+          }
+      - name: Wait for the complete CI workflow on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 90); do
+            successful="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=100" --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
+            if [ "$successful" -gt 0 ]; then
+              echo "verified successful CI workflow for $GITHUB_SHA"
+              exit 0
+            fi
+            echo "CI has not succeeded yet (attempt $attempt/90)"
+            sleep 20
+          done
+          echo "no successful complete CI workflow found for $GITHUB_SHA" >&2
+          exit 1
+
+  build:
+    name: Build and verify distributions
+    needs: verify-ci
+    if: >-
+      ${{ always() && (github.event_name == 'workflow_dispatch' ||
+      needs.verify-ci.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install pinned uv and frozen development environment
+        run: |
+          python -m pip install --disable-pip-version-check uv==0.11.21
+          uv sync --frozen --extra dev
+      - name: Run release quality gate
+        run: |
+          uv run --frozen ruff check .
+          uv run --frozen ruff format --check .
+          uv run --frozen mypy --python-version 3.11 src
+          uv run --frozen bandit -q -r src
+          uv run --frozen pytest --cov=simcairn --cov-branch --cov-report=term-missing
+      - name: Verify tag matches package version
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          if os.environ["RELEASE_EVENT"] == "push":
+              expected = f"v{version}"
+              if os.environ["RELEASE_TAG"] != expected:
+                  raise SystemExit(
+                      f"release tag {os.environ['RELEASE_TAG']!r} does not match {expected!r}"
+                  )
+          print(f"validated project version {version}")
+          PY
+      - name: Fix build timestamp to the source commit
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+      - name: Build from a clean output directory
+        run: |
+          rm -rf dist build
+          uv run --frozen python -m build --no-isolation
+      - name: Validate distribution metadata and shape
+        run: |
+          uv run --frozen python -m twine check --strict dist/*
+          python - <<'PY'
+          import tarfile
+          import zipfile
+          import hashlib
+          import json
+          from pathlib import Path
+
+          wheels = tuple(Path("dist").glob("*.whl"))
+          sdists = tuple(Path("dist").glob("*.tar.gz"))
+          if len(wheels) != 1 or len(sdists) != 1 or len(tuple(Path("dist").iterdir())) != 2:
+              raise SystemExit("expected exactly one wheel and one .tar.gz source distribution")
+          with tarfile.open(sdists[0], "r:gz") as archive:
+              names = {"/".join(name.split("/")[1:]) for name in archive.getnames()}
+          required_source = {
+              "CITATION.cff",
+              "benchmarks/manifest.json",
+              "benchmarks/gf180-manifest.json",
+              "benchmarks/sky130-manifest.json",
+              "benchmarks/results/ngspice-42-gf180-pvt.json",
+              "benchmarks/results/ngspice-42-rc-pvt.json",
+              "benchmarks/results/ngspice-42-sky130-pvt.json",
+              "benchmarks/validate_bundle.py",
+              "benchmarks/validate_gf180.py",
+              "benchmarks/validate_sky130.py",
+              "benchmarks/verify_reference.py",
+              "docs/validation.md",
+              "examples/rc_pvt/offline-golden.json",
+              "src/simcairn/provenance.py",
+              "src/simcairn/reference.py",
+          }
+          if missing := required_source - names:
+              raise SystemExit(f"source distribution is missing: {sorted(missing)}")
+          with zipfile.ZipFile(wheels[0]) as archive:
+              wheel_names = set(archive.namelist())
+              python_names = sorted(
+                  name for name in wheel_names
+                  if name.startswith("simcairn/") and name.endswith(".py")
+              )
+              files = {
+                  name.removeprefix("simcairn/"): hashlib.sha256(archive.read(name)).hexdigest()
+                  for name in python_names
+              }
+          required_wheel = {"simcairn/_version.py", "simcairn/py.typed"}
+          if missing := required_wheel - wheel_names:
+              raise SystemExit(f"wheel is missing: {sorted(missing)}")
+          manifests = [
+              json.loads(Path(path).read_text(encoding="utf-8"))
+              for path in (
+                  "benchmarks/manifest.json",
+                  "benchmarks/gf180-manifest.json",
+                  "benchmarks/sky130-manifest.json",
+              )
+          ]
+          identities = [manifest["producer_identity"] for manifest in manifests]
+          if any(identity != identities[0] for identity in identities[1:]):
+              raise SystemExit("benchmark manifests disagree on producer identity")
+          identity = identities[0]
+          distributions = [manifest["producer_distribution"] for manifest in manifests]
+          if any(distribution != distributions[0] for distribution in distributions[1:]):
+              raise SystemExit("benchmark manifests disagree on validation distribution")
+          validation_distribution = distributions[0]
+          if validation_distribution != {
+              "filename": f"simcairn-{identity['version']}-py3-none-any.whl",
+              "sha256": validation_distribution.get("sha256"),
+          }:
+              raise SystemExit("validation distribution fields are invalid")
+          digest = validation_distribution["sha256"]
+          if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+              raise SystemExit("validation distribution SHA-256 is invalid")
+          logical_tree = {
+              "algorithm": "simcairn-python-source-tree/1",
+              "files": files,
+          }
+          package_tree = hashlib.sha256(
+              json.dumps(logical_tree, sort_keys=True, separators=(",", ":")).encode("ascii")
+          ).hexdigest()
+          expected = {
+              "package_tree_sha256": package_tree,
+              "validation_implementation_sha256": files["reference.py"],
+              "adapter_implementation_sha256": files["adapters.py"],
+          }
+          for field, actual in expected.items():
+              if identity[field] != actual:
+                  raise SystemExit(
+                      f"release wheel {field} does not match benchmark producer identity"
+                  )
+          PY
+      - name: Install wheel and smoke-import package
+        run: |
+          python -m venv .release-smoke
+          .release-smoke/bin/python -m pip install --disable-pip-version-check --no-deps dist/*.whl
+          .release-smoke/bin/python -I - <<'PY'
+          import importlib.metadata
+          import subprocess
+          import sys
+
+          import simcairn
+
+          installed = importlib.metadata.version("simcairn")
+          if simcairn.__version__ != installed:
+              raise SystemExit("runtime and distribution versions differ")
+          output = subprocess.check_output(
+              [sys.executable, "-I", "-m", "simcairn", "--version"], text=True
+          ).strip()
+          if output != f"simcairn {installed}":
+              raise SystemExit(f"unexpected CLI version: {output!r}")
+          PY
+      - name: Upload verified distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  provenance:
+    name: Attest build provenance
+    if: github.event_name == 'push' && github.event.repository.visibility == 'public'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download verified distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-distributions
+          path: dist
+      - name: Attest verified distributions
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/*
+
+  github-release:
+    name: Create GitHub release
+    if: >-
+      ${{ github.event_name == 'push' && always() && needs.build.result == 'success' &&
+      (needs.provenance.result == 'success' || needs.provenance.result == 'skipped') }}
+    needs: [build, provenance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-distributions
+          path: dist
+      - name: Create release exactly once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          resolved_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+          if [ "$resolved_sha" != "$GITHUB_SHA" ]; then
+            echo "tag moved during release: expected $GITHUB_SHA, resolved $resolved_sha" >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub release $RELEASE_TAG already exists; refusing to replace its assets."
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes

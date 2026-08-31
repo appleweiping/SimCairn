@@ -2,7 +2,17 @@
 
 All notable changes are documented here. Versions follow Semantic Versioning.
 
-## [Unreleased]
+## [0.2.0] - 2026-08-31
+
+- Added manifest-declared measurement units and the strict, producer-bound
+  `regressistor.measurement-bundle/2` aggregate artifact. Version-1 bundles
+  are rejected fail closed because they do not identify the implementation
+  that produced and validates their measurements.
+- Added a 32-point RC PVT/parameter reference with separate offline-mock and
+  real-ngspice validation evidence.
+- Added externally anchored, content-pinned SKY130A and GF180MCU 27-point PVT
+  configuration flows with portable provenance.
+- Added distribution-derived runtime versioning and a frozen, attested release pipeline.
 
 ## [0.1.0] - 2026-08-31
 

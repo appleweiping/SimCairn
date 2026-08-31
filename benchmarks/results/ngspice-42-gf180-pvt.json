@@ -1,0 +1,828 @@
+{
+  "points": [
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "-40",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 10.6276
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0212552
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 1.42876
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000138711
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 4.67041e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "27",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 9.33164
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0186633
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 1.20359
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000158977
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 5.35276e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "125",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 7.80458
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0156092
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.961879
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000180731
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 6.08521e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "-40",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 10.7359
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0214717
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 1.74247
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000155753
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 4.71979e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "27",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 9.46179
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0189236
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 1.51626
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000178374
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 5.40529e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "125",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 8.01372
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0160274
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 1.27101
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000202899
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 6.14847e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "-40",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 10.8165
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0216331
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 2.0569
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000173041
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 4.76697e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "27",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 9.555
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.01911
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 1.83049
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000197947
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 5.45308e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "tt",
+        "TEMP_C": "125",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 8.13463
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0162693
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 1.58373
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000225089
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 6.20081e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "-40",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 6.04041
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0120808
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 2.42384
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 4.91545e-05
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 1.65503e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "27",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 6.26886
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0125377
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 2.16503
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 7.24474e-05
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 2.43931e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "125",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 5.98993
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0119799
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 1.85603
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000100258
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 3.37567e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "-40",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 6.07607
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0121521
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 2.74486
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 5.55145e-05
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 1.68226e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "27",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 6.29868
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0125974
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 2.48609
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 8.13914e-05
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 2.46641e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "125",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 6.02885
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0120577
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 2.17678
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000112322
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 3.40371e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "-40",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 6.10132
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0122026
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 3.0636
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 6.23039e-05
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 1.71636e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "27",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 6.30681
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0126136
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 2.80577
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 9.06651e-05
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 2.49766e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ss",
+        "TEMP_C": "125",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 6.04982
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0120996
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 2.49742
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000124584
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 3.43206e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "-40",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 1.9763
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0039526
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.233442
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.00024629
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 8.2926e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "27",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 1.53797
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.00307595
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.265436
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000243411
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 8.19565e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "125",
+        "VDD": "2.97"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 1.18656
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.00237312
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.308439
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.00023954
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 8.06534e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "-40",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 5.33132
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0106626
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.315684
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000298432
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 9.04338e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "27",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 3.17298
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.00634595
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.337527
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000296247
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 8.97719e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "125",
+        "VDD": "3.30"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 1.97167
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.00394333
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.376482
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000292352
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 8.85915e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "-40",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 11.9847
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.0239693
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.512837
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000342888
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 9.44595e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "27",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 8.64698
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.017294
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.491124
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000345276
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 9.51175e-05
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "CORNER": "ff",
+        "TEMP_C": "125",
+        "VDD": "3.63"
+      },
+      "metrics": {
+        "gain_100khz": {
+          "unit": "1",
+          "value": 4.54878
+        },
+        "output_pp_v": {
+          "unit": "V",
+          "value": 0.00909757
+        },
+        "output_v": {
+          "unit": "V",
+          "value": 0.486006
+        },
+        "power_w": {
+          "unit": "W",
+          "value": 0.000345839
+        },
+        "supply_current_a": {
+          "unit": "A",
+          "value": 9.52725e-05
+        }
+      },
+      "sample": 0
+    }
+  ],
+  "run": {
+    "aggregate_activity_id": "7a45b6055af057e35acab4f10b9a56ba3e469dc0af48e65865155abc432de6f6",
+    "contract": "regressistor.measurement-bundle/2",
+    "producer": "SimCairn",
+    "producer_identity": {
+      "adapter_implementation_sha256": "aaa76bb2654444ba0b5e8aee7c1e5908f9146c705c84aa6f766168d45eda6c4e",
+      "distribution": "simcairn",
+      "package_tree_algorithm": "simcairn-python-source-tree/1",
+      "package_tree_sha256": "8abfa550a6b576a176d3d81bb251d6d1cdefc440a32a6cf75911e4ab3ad702d0",
+      "validation_implementation_sha256": "90e27f73e3261bc58646bb49d8310d524afa29899a7a5523d789f383329ef4c4",
+      "version": "0.2.0"
+    }
+  },
+  "schema_version": 2
+}

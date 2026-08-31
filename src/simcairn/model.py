@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from simcairn.provenance import ProducerIdentity
+
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -105,16 +107,17 @@ def _measure_list(value: Any, context: str) -> list[dict[str, str]]:
     for item in value:
         if not isinstance(item, dict):
             raise ValueError(f"{context} entries must be objects")
-        _exact_keys(item, {"name", "source", "field"}, f"{context} entry")
+        _exact_keys(item, {"name", "source", "field", "unit"}, f"{context} entry")
         name = _text(item["name"], f"{context} name")
         source = _safe_logical_name(_text(item["source"], f"{context} source"), context)
         field = _text(item["field"], f"{context} field")
+        unit = _text(item["unit"], f"{context} unit")
         if _IDENTIFIER.fullmatch(name) is None or _IDENTIFIER.fullmatch(field) is None:
             raise ValueError(f"{context} names and fields must be identifiers")
         if name.casefold() in names:
             raise ValueError(f"{context} measure names must be unique")
         names.add(name.casefold())
-        result.append({"name": name, "source": source, "field": field})
+        result.append({"name": name, "source": source, "field": field, "unit": unit})
     return result
 
 
@@ -162,6 +165,8 @@ def _validate_activity_contract(
     payload: dict[str, Any],
     identity: dict[str, Any],
 ) -> None:
+    ProducerIdentity.from_value(identity.get("producer_identity"))
+    identity = {key: value for key, value in identity.items() if key != "producer_identity"}
     if kind == "render":
         if point is None:
             raise ValueError("render activity requires a sweep point")
@@ -253,9 +258,9 @@ def _validate_activity_contract(
         _exact_keys(payload, {"measures"}, "aggregate payload")
         _exact_keys(identity, {"aggregator", "measures"}, "aggregate identity")
         _text(identity["aggregator"], "aggregate identity aggregator")
-        names = _string_list(payload["measures"], "aggregate measures")
+        names = _measure_list(payload["measures"], "aggregate measures")
         measures = _measure_list(identity["measures"], "aggregate identity measures")
-        if names != [item["name"] for item in measures]:
+        if names != measures:
             raise ValueError("aggregate measures do not match activity identity")
         return
 
@@ -410,7 +415,7 @@ class Activity:
         expected_id = hashlib.sha256(
             canonical_json(
                 {
-                    "activity_schema": 1,
+                    "activity_schema": 2,
                     "kind": kind,
                     "point": None if point is None else list(point.values),
                     "dependencies": dependencies,
@@ -456,7 +461,7 @@ class Plan:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "id": self.id,
             "manifest_path": self.manifest_path,
             "jobs": self.jobs,
@@ -486,7 +491,7 @@ class Plan:
         if (
             isinstance(schema_version, bool)
             or not isinstance(schema_version, int)
-            or schema_version != 1
+            or schema_version != 2
         ):
             raise ValueError("unsupported saved-plan schema version")
         raw_activities = data["activities"]
@@ -526,7 +531,7 @@ class Plan:
         expected_id = hashlib.sha256(
             canonical_json(
                 {
-                    "plan_schema": 1,
+                    "plan_schema": 2,
                     "activities": identifiers,
                     "jobs": jobs,
                     "resources": dict(limits),

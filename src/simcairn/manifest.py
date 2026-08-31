@@ -50,6 +50,7 @@ class MeasureConfig:
     name: str
     source: str
     field: str
+    unit: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +208,7 @@ def load_manifest(path: str | Path) -> Manifest:
             errors.append(f"sweep.{name} must be a non-empty array")
             continue
         canonical = tuple(_canonical_sweep_value(value, name, errors) for value in values)
-        if len(set(canonical)) != len(canonical):
+        if mode != "zip" and len(set(canonical)) != len(canonical):
             errors.append(f"sweep.{name} contains duplicate canonical values")
         parameters.append((name, canonical))
     if not parameters:
@@ -275,7 +276,7 @@ def load_manifest(path: str | Path) -> Manifest:
                 errors.append(f"measure[{index}] must be a table")
                 continue
             _reject_unknown_keys(
-                raw_measure, {"name", "source", "field"}, f"measure[{index}]", errors
+                raw_measure, {"name", "source", "field", "unit"}, f"measure[{index}]", errors
             )
             name = _string(raw_measure, "name", f"measure[{index}]", errors)
             raw_source = raw_measure.get("source", "metrics.json")
@@ -290,6 +291,16 @@ def load_manifest(path: str | Path) -> Manifest:
                 field = ""
             else:
                 field = raw_field
+            raw_unit = raw_measure.get("unit", "1")
+            if (
+                not isinstance(raw_unit, str)
+                or not raw_unit.strip()
+                or any(ord(character) < 32 for character in raw_unit)
+            ):
+                errors.append(f"measure[{index}].unit must be a non-empty printable string")
+                unit = "1"
+            else:
+                unit = raw_unit.strip()
             if not _NAME.fullmatch(name):
                 errors.append(f"measure[{index}].name must be an identifier")
             if name.casefold() in seen_measures:
@@ -305,7 +316,7 @@ def load_manifest(path: str | Path) -> Manifest:
                 errors.append(f"measure[{index}].source must be a safe relative artifact path")
             if not _NAME.fullmatch(field):
                 errors.append(f"measure[{index}].field must be an identifier")
-            measures.append(MeasureConfig(name, source, field))
+            measures.append(MeasureConfig(name, source, field, unit))
     if not measures:
         errors.append("at least one [[measure]] table is required")
 

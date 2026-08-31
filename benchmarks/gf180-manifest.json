@@ -1,0 +1,90 @@
+{
+  "schema_version": 2,
+  "benchmark": "gf180mcu-common-source-pvt",
+  "licenses": {
+    "benchmark_code": "MIT",
+    "local_pdk_model_cache": "Apache-2.0 (not vendored)"
+  },
+  "command": "simcairn configure-gf180 ../BiasWeave/benchmarks/sky130-sizing-decision.json configured --expected-topology TL-00052f7b8c5e --expected-signature 086ce3f4158fa05ea8fddf2e7552af1d9774f95faffbe4dee11fae262d8857c8 --expected-decision-sha256 b2c8682f543233727c395d9ce5b260a3201c9ebbaf71b97085add08eaf6393d8 --expected-benchmark-sha256 7f128312cad0b25b73a0c73e19ebd3fed8841428a237a8145f4d9699d3989214 --expected-comparison-sha256 0b265d1236aa3d273dc68e772f14c9002eaa2cf99a8feb3dfc11d747a059d267 --pdk-root /opt/pdks/gf180mcuC && simcairn run configured/simcairn.toml --store configured/.simcairn",
+  "expected": {
+    "points": 27,
+    "successful_activities": 82,
+    "regression_contract": "regressistor.measurement-bundle/2",
+    "corners": ["tt", "ss", "ff"],
+    "voltages_v": ["2.97", "3.30", "3.63"],
+    "temperatures_c": ["-40", "27", "125"]
+  },
+  "decision_trust_anchors": {
+    "decision_sha256": "b2c8682f543233727c395d9ce5b260a3201c9ebbaf71b97085add08eaf6393d8",
+    "benchmark_sha256": "7f128312cad0b25b73a0c73e19ebd3fed8841428a237a8145f4d9699d3989214",
+    "comparison_sha256": "0b265d1236aa3d273dc68e772f14c9002eaa2cf99a8feb3dfc11d747a059d267"
+  },
+  "producer_identity": {
+    "distribution": "simcairn",
+    "version": "0.2.0",
+    "package_tree_algorithm": "simcairn-python-source-tree/1",
+    "package_tree_sha256": "8abfa550a6b576a176d3d81bb251d6d1cdefc440a32a6cf75911e4ab3ad702d0",
+    "validation_implementation_sha256": "90e27f73e3261bc58646bb49d8310d524afa29899a7a5523d789f383329ef4c4",
+    "adapter_implementation_sha256": "aaa76bb2654444ba0b5e8aee7c1e5908f9146c705c84aa6f766168d45eda6c4e"
+  },
+  "producer_distribution": {
+    "filename": "simcairn-0.2.0-py3-none-any.whl",
+    "sha256": "35cb0d7aa3aebff1459d8c5ee1936c0aab47de462f8e66b61fceb3a027c0dbff"
+  },
+  "validation": {
+    "implementation": "simcairn/reference.py",
+    "entrypoint": "benchmarks/validate_gf180.py",
+    "entrypoint_sha256": "7df2b52baf73e0c35494f2ccf7b6bff04b95a66fb472a4336c47f53a4327261a"
+  },
+  "pdk": {
+    "provider": "Ciel",
+    "variant": "gf180mcuC",
+    "revision": "1689ac3f2dc763876eaf967227c7dfe831b031ae",
+    "official_assets": {
+      "common.tar.zst": {
+        "bytes": 170084745,
+        "sha256": "256586ecaea68886ce57942d83a86f82e6e1bc081badf6c9c9b70755f3456a41"
+      },
+      "gf180mcu_fd_pr.tar.zst": {
+        "bytes": 51212,
+        "sha256": "6b26fbf4aed755bddefcdb3610f5f957cc0a8a019e72c3abc9c611f9947d1f62"
+      }
+    },
+    "nodeinfo_sha256": "8b96003d04744651f80946144035a78ed8862c25e87e879c4ee573bee08f7705",
+    "model_sha256": {
+      "design.ngspice": "7e222f050318388f37543a64fbd0be55cc15e4b93f57501a09f7c159c4c9e561",
+      "sm141064.spice": "69a7ab877344a6d477fdd11440457f64e7ad88a624504a737a161da463de8bc8"
+    }
+  },
+  "observation": {
+    "date": "2026-08-31",
+    "simulator_version": "ngspice-42",
+    "simulator_package": "ngspice 42+ds-3build1",
+    "adapter_identity": "simcairn-ngspice/2:ngspice-42",
+    "executable_sha256": "820658317b0b54035208da41936fd6871ce924036e5ea4113a4168b821b7fc45",
+    "solver": "KLU",
+    "platform": "Linux 6.18.33.2-microsoft-standard-WSL2 x86_64 (Ubuntu)",
+    "plan_id": "6e4b875410387ad3868451b8135dbebbfed64485faebbb6d22c3e4fcd300ac32",
+    "aggregate_activity_id": "7a45b6055af057e35acab4f10b9a56ba3e469dc0af48e65865155abc432de6f6",
+    "observed_wall_seconds": 8.35,
+    "successful_activities": 82
+  },
+  "portable_configuration": {
+    "byte_identical_files_across_two_output_roots": 9,
+    "absolute_paths_in_provenance": false
+  },
+  "artifacts": {
+    "benchmarks/results/ngspice-42-gf180-pvt.json": "f4e4b661eb1a141d17d66e785b55d93a0110524d1d3173f390e71408d7866fbc",
+    "benchmarks/validate_gf180.py": "7df2b52baf73e0c35494f2ccf7b6bff04b95a66fb472a4336c47f53a4327261a"
+  },
+  "local_run_artifacts": {
+    "plan.json": "1869407219d8d574e67a7c0fa317d33ff38bb014a0b818e78eb7ed08c5536b0b",
+    "simcairn.toml": "dc724a39881c6c573f790fda33e63556fe00da572721e53a003be188ba31a8c6",
+    "gf180_common_source.sp.tmpl": "d20153b6e6e24c30a502ef01854a5735a4dc0a92ac067430dc5c977b617f4505",
+    "pdk-provenance.json": "f8ec53da12551c47ba4d97662d82c86c326cc098f883a26c9f8c71d7f1b1cb5e",
+    "results.json": "6815f78581c66e90a59503c9cf0b2d402f80c414c3f8b7433ed052efa55a6abc",
+    "results.csv": "5ee0c8efaf6f82c8a35fbe5f2ba11fa2c0d2691decda219580c1fb41c0925275",
+    "run-report.json": "c8874fe618da081c8946569c646672a7186dfa96583fcec9323eae4627497803",
+    "regression-bundle.json": "f4e4b661eb1a141d17d66e785b55d93a0110524d1d3173f390e71408d7866fbc"
+  }
+}
