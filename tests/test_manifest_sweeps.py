@@ -49,6 +49,7 @@ field = "cutoff_hz"
 def test_valid_manifest_and_product_plan(tmp_path):
     manifest = load_manifest(_project(tmp_path))
     assert manifest.simulator.adapter == "mock-rc"
+    assert manifest.measures[0].unit == "1"
     assert manifest.template.deck == (tmp_path / "deck.sp.tmpl").resolve()
     points = expand_sweep(manifest.sweep)
     assert [point.as_dict() for point in points] == [
@@ -107,6 +108,7 @@ def test_input_content_changes_only_content_dependent_keys(tmp_path):
     second = compile_plan(load_manifest(manifest_path))
     assert first.id != second.id
     assert first.activities[0].id != second.activities[0].id
+    assert first.activities[-1].id != second.activities[-1].id
 
 
 def test_simulation_identity_binds_executable_and_requested_measure_fields(tmp_path):
@@ -124,6 +126,19 @@ def test_simulation_identity_binds_executable_and_requested_measure_fields(tmp_p
     assert first_simulate.id != second_simulate.id
     assert first_simulate.identity["measure_fields"] == ["cutoff_hz"]
     assert second_simulate.identity["measure_fields"] == ["cutoff_hz", "resistance_ohm"]
+
+
+def test_measure_unit_is_strict_and_bound_to_extract_and_aggregate_identity(tmp_path):
+    manifest_path = _project(tmp_path, extra='unit = "Hz"')
+    plan = compile_plan(load_manifest(manifest_path))
+    extract = next(item for item in plan.activities if item.kind == "extract")
+    aggregate = plan.activities[-1]
+    assert extract.identity["measures"][0]["unit"] == "Hz"
+    assert aggregate.identity["measures"][0]["unit"] == "Hz"
+
+    manifest_path = _project(tmp_path, extra='unit = ""')
+    with pytest.raises(ManifestError, match="unit must be"):
+        load_manifest(manifest_path)
 
 
 @pytest.mark.parametrize(
@@ -425,6 +440,41 @@ def test_manifest_rejects_casefold_duplicate_sweep_parameters(tmp_path):
     path.write_text(text, encoding="utf-8")
     with pytest.raises(ManifestError, match="duplicate sweep parameter"):
         load_manifest(path)
+
+
+def test_zip_sweep_allows_repeated_columns_when_complete_points_are_unique(tmp_path):
+    path = _project(tmp_path, mode="zip")
+    text = path.read_text(encoding="utf-8")
+    text = text.replace('R = ["1k", "2k"]', 'R = ["1k", "1k", "2k"]')
+    text = text.replace('C = ["1n", "2n"]', 'C = ["1n", "2n", "2n"]')
+    path.write_text(text, encoding="utf-8")
+    points = expand_sweep(load_manifest(path).sweep)
+    assert [point.as_dict() for point in points] == [
+        {"R": "1k", "C": "1n"},
+        {"R": "1k", "C": "2n"},
+        {"R": "2k", "C": "2n"},
+    ]
+
+
+def test_zip_rejects_duplicate_complete_points_and_product_rejects_duplicate_columns(tmp_path):
+    zip_root = tmp_path / "zip"
+    zip_root.mkdir()
+    zip_path = _project(zip_root, mode="zip")
+    text = zip_path.read_text(encoding="utf-8").replace('R = ["1k", "2k"]', 'R = ["1k", "1k"]')
+    text = text.replace('C = ["1n", "2n"]', 'C = ["1n", "1n"]')
+    zip_path.write_text(text, encoding="utf-8")
+    with pytest.raises(ManifestError, match="duplicate point"):
+        expand_sweep(load_manifest(zip_path).sweep)
+
+    product_root = tmp_path / "product"
+    product_root.mkdir()
+    product_path = _project(product_root)
+    product_path.write_text(
+        product_path.read_text(encoding="utf-8").replace('R = ["1k", "2k"]', 'R = ["1k", "1k"]'),
+        encoding="utf-8",
+    )
+    with pytest.raises(ManifestError, match="duplicate canonical"):
+        load_manifest(product_path)
 
 
 def test_manifest_rejects_measure_name_that_overwrites_sweep_coordinate(tmp_path):

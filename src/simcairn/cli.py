@@ -7,10 +7,13 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from simcairn.api import Runner, compile_plan, load_manifest
+from simcairn._version import __version__
+from simcairn.api import Runner, compile_plan, configure_gf180, configure_sky130, load_manifest
 from simcairn.fingerprints import stable_json
+from simcairn.gf180 import GF180ConfigurationError
 from simcairn.journal import JournalError, clear_run_lock
 from simcairn.manifest import ManifestError
+from simcairn.sky130 import Sky130ConfigurationError
 from simcairn.store import StoreError
 
 
@@ -77,9 +80,39 @@ def _unlock(args: argparse.Namespace) -> int:
     return 0
 
 
+def _configure_sky130(args: argparse.Namespace) -> int:
+    manifest = configure_sky130(
+        args.decision,
+        args.output,
+        expected_topology=args.expected_topology,
+        expected_signature=args.expected_signature,
+        expected_decision_sha256=args.expected_decision_sha256,
+        expected_benchmark_sha256=args.expected_benchmark_sha256,
+        expected_comparison_sha256=args.expected_comparison_sha256,
+        pdk_root=args.pdk_root,
+    )
+    print(manifest)
+    return 0
+
+
+def _configure_gf180(args: argparse.Namespace) -> int:
+    manifest = configure_gf180(
+        args.decision,
+        args.output,
+        expected_topology=args.expected_topology,
+        expected_signature=args.expected_signature,
+        expected_decision_sha256=args.expected_decision_sha256,
+        expected_benchmark_sha256=args.expected_benchmark_sha256,
+        expected_comparison_sha256=args.expected_comparison_sha256,
+        pdk_root=args.pdk_root,
+    )
+    print(manifest)
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="simcairn")
-    parser.add_argument("--version", action="version", version="simcairn 0.1.0")
+    parser.add_argument("--version", action="version", version=f"simcairn {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate = subparsers.add_parser("validate", help="validate and fingerprint a manifest")
@@ -122,6 +155,32 @@ def _parser() -> argparse.ArgumentParser:
     unlock.add_argument("--store", default=".simcairn")
     unlock.add_argument("--force", action="store_true")
     unlock.set_defaults(handler=_unlock)
+
+    sky130 = subparsers.add_parser(
+        "configure-sky130", help="create a content-bound SKY130 benchmark"
+    )
+    sky130.add_argument("decision")
+    sky130.add_argument("output")
+    sky130.add_argument("--expected-topology", required=True)
+    sky130.add_argument("--expected-signature", required=True)
+    sky130.add_argument("--expected-decision-sha256", required=True)
+    sky130.add_argument("--expected-benchmark-sha256", required=True)
+    sky130.add_argument("--expected-comparison-sha256", required=True)
+    sky130.add_argument("--pdk-root", required=True)
+    sky130.set_defaults(handler=_configure_sky130)
+
+    gf180 = subparsers.add_parser(
+        "configure-gf180", help="create a content-bound GF180MCU benchmark"
+    )
+    gf180.add_argument("decision")
+    gf180.add_argument("output")
+    gf180.add_argument("--expected-topology", required=True)
+    gf180.add_argument("--expected-signature", required=True)
+    gf180.add_argument("--expected-decision-sha256", required=True)
+    gf180.add_argument("--expected-benchmark-sha256", required=True)
+    gf180.add_argument("--expected-comparison-sha256", required=True)
+    gf180.add_argument("--pdk-root", required=True)
+    gf180.set_defaults(handler=_configure_gf180)
     return parser
 
 
@@ -129,7 +188,15 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return int(args.handler(args))
-    except (ManifestError, StoreError, JournalError, OSError, ValueError) as error:
+    except (
+        ManifestError,
+        StoreError,
+        JournalError,
+        Sky130ConfigurationError,
+        GF180ConfigurationError,
+        OSError,
+        ValueError,
+    ) as error:
         print(f"simcairn: {error}", file=sys.stderr)
         return 2
 

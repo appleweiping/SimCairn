@@ -29,7 +29,30 @@ produced a result.
 - Recovery of an incomplete final journal record and replay of verified cache.
 - A deterministic RC subprocess for examples and CI.
 - An ngspice batch adapter for decks that emit requested `.measure` values.
+- Offline, content-pinned SKY130A and GF180MCU 27-point PVT materializers.
 - Stable JSON and CSV result collection.
+
+## RC PVT reference and regression contract
+
+[`examples/rc_pvt`](examples/rc_pvt) contains parallel real-ngspice and
+offline analytic-mock manifests over the same 32 process-scale, voltage,
+temperature, resistance, and capacitance cases. Aggregate activities now emit
+`regression-bundle.json` using the versioned
+`regressistor.measurement-bundle/2` contract with manifest-declared units and
+the exact producing package, validator implementation, and simulator-adapter
+source identity.
+
+The checked-in fixtures clearly distinguish real ngspice-42 output from the
+project-generated mock. See [`docs/validation.md`](docs/validation.md) and
+[`benchmarks/manifest.json`](benchmarks/manifest.json) for commands and hashes.
+Bundle version 2 is a deliberate breaking contract: version-1 inputs are
+rejected rather than silently treated as producer-authenticated evidence.
+
+The GF180MCU integration also publishes a real 27-point
+`regressistor.measurement-bundle/2` artifact. Its PDK, simulator, physical
+invariants, and hashes are recorded in
+[`docs/gf180-validation.md`](docs/gf180-validation.md) and
+[`benchmarks/gf180-manifest.json`](benchmarks/gf180-manifest.json).
 - No runtime Python dependencies.
 
 ## Installation
@@ -131,9 +154,10 @@ adapter = "ngspice"
 executable = "/opt/ngspice/bin/ngspice"
 ```
 
-The adapter fingerprints the first `--version` line during planning. Requested
-measure fields are parsed from `name = numeric_value` lines in ngspice's batch
-log. Tests do not require ngspice to be installed.
+The adapter fingerprints the normalized `ngspice-N[.N...]` token from the
+`--version` banner during planning; decorative banner lines are ignored.
+Requested measure fields are parsed from `name = numeric_value` lines in
+ngspice's batch log. Tests do not require ngspice to be installed.
 
 An optional `[simulator.environment]` table supplies explicit child-process
 environment values. SimCairn otherwise passes only basic executable and
@@ -193,6 +217,8 @@ simcairn status RUN_ID [--store PATH]
 simcairn collect RUN_ID [--store PATH] [-o OUTPUT]
 simcairn explain ACTIVITY_ID [--store PATH]
 simcairn unlock RUN_ID [--store PATH] [--force]
+simcairn configure-sky130 DECISION OUTPUT [TRUST ANCHORS] --pdk-root PATH
+simcairn configure-gf180 DECISION OUTPUT [TRUST ANCHORS] --pdk-root PATH
 ```
 
 Exit status is 0 for success, 1 for a completed failed run or cache miss from
@@ -201,7 +227,7 @@ Exit status is 0 for success, 1 for a completed failed run or cache miss from
 ## Python API
 
 ```python
-from simcairn import Runner, compile_plan, load_manifest
+from simcairn import Runner, compile_plan, configure_gf180, configure_sky130, load_manifest
 
 manifest = load_manifest("examples/rc_sweep/simcairn.toml")
 plan = compile_plan(manifest)
@@ -265,7 +291,7 @@ account. See [SECURITY.md](SECURITY.md).
 
 ## Scope
 
-Version 0.1 is a single-host orchestrator. It does not provide cloud workers,
+Current 0.x releases are single-host orchestrators. They do not provide cloud workers,
 Slurm or Kubernetes integration, container lifecycle management, license-server
 management, a web interface, circuit optimization, netlist semantic parsing, or
 automatic baseline acceptance.

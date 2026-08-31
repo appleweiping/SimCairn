@@ -15,16 +15,20 @@ from simcairn.journal import (
     replay,
 )
 from simcairn.model import Activity, InputDigest, Plan, SweepPoint, canonical_json
+from simcairn.provenance import current_producer_identity
 from simcairn.store import ArtifactStore, StoreError
 
 
 def _activity(artifacts=("result.txt",)) -> Activity:
     point = SweepPoint(0, (("R", "1k"),))
-    identity = {"renderer": "test-renderer/1"}
+    identity = {
+        "producer_identity": current_producer_identity().as_dict(),
+        "renderer": "test-renderer/1",
+    }
     inputs = (InputDigest("template.sp", "__template__", "d" * 64),)
     identifier = fingerprint(
         {
-            "activity_schema": 1,
+            "activity_schema": 2,
             "kind": "render",
             "point": list(point.values),
             "dependencies": [],
@@ -57,7 +61,7 @@ def _plan(activity: Activity | None = None) -> Plan:
     item = activity or _activity()
     plan_id = fingerprint(
         {
-            "plan_schema": 1,
+            "plan_schema": 2,
             "activities": [item.id],
             "jobs": 1,
             "resources": {"simulator": 1},

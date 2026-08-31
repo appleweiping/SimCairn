@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling>=1.26"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "simcairn"
-version = "0.1.0"
+version = "0.2.0"
 description = "Resumable local orchestration for reproducible SPICE activities"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,13 +26,15 @@ dependencies = []
 [project.optional-dependencies]
 dev = [
   "bandit>=1.8",
-  "build>=1.2",
+  "build==1.6.0",
   "coverage[toml]>=7.6",
+  "hatchling==1.32.0",
   "mypy>=1.15",
   "pytest>=8.3",
   "pytest-asyncio>=0.25",
   "pytest-cov>=6.0",
   "ruff>=0.9",
+  "twine==7.0.0",
 ]
 
 [project.scripts]
@@ -51,8 +53,10 @@ include = [
   "/src",
   "/tests",
   "/examples",
+  "/benchmarks",
   "/docs",
   "/*.md",
+  "/CITATION.cff",
   "/LICENSE",
 ]
 exclude = ["/.github", "/uv.lock"]

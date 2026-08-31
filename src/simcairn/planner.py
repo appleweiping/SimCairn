@@ -9,6 +9,7 @@ from simcairn.adapters import create_adapter
 from simcairn.fingerprints import fingerprint, sha256_file
 from simcairn.manifest import Manifest, ManifestError
 from simcairn.model import Activity, InputDigest, Plan, SweepPoint, canonical_json
+from simcairn.provenance import current_producer_identity
 from simcairn.sweeps import expand_sweep
 
 
@@ -27,10 +28,12 @@ def _activity(
     timeout_seconds: float,
     payload: dict[str, Any],
     identity_payload: dict[str, Any],
+    producer_identity: dict[str, str],
 ) -> Activity:
+    bound_identity = {"producer_identity": producer_identity, **identity_payload}
     identifier = fingerprint(
         {
-            "activity_schema": 1,
+            "activity_schema": 2,
             "kind": kind,
             "point": None if point is None else list(point.values),
             "dependencies": list(dependencies),
@@ -38,7 +41,7 @@ def _activity(
                 {"logical_name": item.logical_name, "sha256": item.sha256} for item in inputs
             ],
             "expected_artifacts": list(expected_artifacts),
-            "identity": identity_payload,
+            "identity": bound_identity,
         }
     )
     return Activity(
@@ -51,7 +54,7 @@ def _activity(
         resources,
         timeout_seconds,
         canonical_json(payload),
-        canonical_json(identity_payload),
+        canonical_json(bound_identity),
     )
 
 
@@ -76,11 +79,12 @@ def compile_plan(manifest: Manifest) -> Plan:
     points = expand_sweep(manifest.sweep)
     adapter = create_adapter(manifest.simulator)
     adapter_identity = adapter.identity()
+    producer_identity = current_producer_identity().as_dict()
     source_inputs = _input_digests(manifest)
     activities: list[Activity] = []
     extract_ids: list[str] = []
     measure_payload = [
-        {"name": item.name, "source": item.source, "field": item.field}
+        {"name": item.name, "source": item.source, "field": item.field, "unit": item.unit}
         for item in manifest.measures
     ]
     copied_inputs = tuple(
@@ -107,6 +111,7 @@ def compile_plan(manifest: Manifest) -> Plan:
                 ],
             },
             identity_payload={"renderer": "strict-placeholder/1"},
+            producer_identity=producer_identity,
         )
         activities.append(render)
 
@@ -131,6 +136,7 @@ def compile_plan(manifest: Manifest) -> Plan:
                 "environment": dict(manifest.simulator.environment),
                 "measure_fields": [item.field for item in manifest.measures],
             },
+            producer_identity=producer_identity,
         )
         activities.append(simulate)
 
@@ -148,6 +154,7 @@ def compile_plan(manifest: Manifest) -> Plan:
                 "point_index": point.index,
             },
             identity_payload={"extractor": "json-field/1", "measures": measure_payload},
+            producer_identity=producer_identity,
         )
         activities.append(extract)
         extract_ids.append(extract.id)
@@ -157,11 +164,12 @@ def compile_plan(manifest: Manifest) -> Plan:
         point=None,
         dependencies=tuple(extract_ids),
         inputs=(),
-        expected_artifacts=("results.json", "results.csv"),
+        expected_artifacts=("results.json", "results.csv", "regression-bundle.json"),
         resources=(),
         timeout_seconds=manifest.run.timeout_seconds,
-        payload={"measures": [item.name for item in manifest.measures]},
+        payload={"measures": measure_payload},
         identity_payload={"aggregator": "table/1", "measures": measure_payload},
+        producer_identity=producer_identity,
     )
     activities.append(aggregate)
 
@@ -169,7 +177,7 @@ def compile_plan(manifest: Manifest) -> Plan:
     resource_limits.setdefault("simulator", manifest.run.jobs)
     plan_id = fingerprint(
         {
-            "plan_schema": 1,
+            "plan_schema": 2,
             "activities": [activity.id for activity in activities],
             "jobs": manifest.run.jobs,
             "resources": resource_limits,

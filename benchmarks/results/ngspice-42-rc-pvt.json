@@ -1,0 +1,786 @@
+{
+  "points": [
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "0.9",
+        "R": "1k",
+        "TEMP_C": "-40",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 239394.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 664.83
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "0.9",
+        "R": "1k",
+        "TEMP_C": "-40",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 119698.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 664.83
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "0.9",
+        "R": "2k",
+        "TEMP_C": "-40",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 119698.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1329.66
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "0.9",
+        "R": "2k",
+        "TEMP_C": "-40",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 59849.6
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1329.66
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "0.9",
+        "R": "1k",
+        "TEMP_C": "125",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 127944.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1243.98
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "0.9",
+        "R": "1k",
+        "TEMP_C": "125",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 63972.1
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1243.98
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "0.9",
+        "R": "2k",
+        "TEMP_C": "125",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 63972.1
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 2487.96
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "0.9",
+        "R": "2k",
+        "TEMP_C": "125",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 31986.1
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 2487.96
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "0.9",
+        "R": "1k",
+        "TEMP_C": "-40",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 239394.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 664.83
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "0.9",
+        "R": "1k",
+        "TEMP_C": "-40",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 119698.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 664.83
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "0.9",
+        "R": "2k",
+        "TEMP_C": "-40",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 119698.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1329.66
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "0.9",
+        "R": "2k",
+        "TEMP_C": "-40",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 59849.6
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1329.66
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "0.9",
+        "R": "1k",
+        "TEMP_C": "125",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 127944.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1243.98
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "0.9",
+        "R": "1k",
+        "TEMP_C": "125",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 63972.1
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1243.98
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "0.9",
+        "R": "2k",
+        "TEMP_C": "125",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 63972.1
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 2487.96
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "0.9",
+        "R": "2k",
+        "TEMP_C": "125",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 31986.1
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 2487.96
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "1.1",
+        "R": "1k",
+        "TEMP_C": "-40",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 195870.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 812.57
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "1.1",
+        "R": "1k",
+        "TEMP_C": "-40",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 97934.2
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 812.57
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "1.1",
+        "R": "2k",
+        "TEMP_C": "-40",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 97934.2
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1625.14
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "1.1",
+        "R": "2k",
+        "TEMP_C": "-40",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 48966.6
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1625.14
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "1.1",
+        "R": "1k",
+        "TEMP_C": "125",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 104678.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1520.42
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "1.1",
+        "R": "1k",
+        "TEMP_C": "125",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 52339.8
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1520.42
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "1.1",
+        "R": "2k",
+        "TEMP_C": "125",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 52339.8
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 3040.84
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "1.1",
+        "R": "2k",
+        "TEMP_C": "125",
+        "VDD": "0.9"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 26170.2
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 3040.84
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "1.1",
+        "R": "1k",
+        "TEMP_C": "-40",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 195870.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 812.57
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "1.1",
+        "R": "1k",
+        "TEMP_C": "-40",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 97934.2
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 812.57
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "1.1",
+        "R": "2k",
+        "TEMP_C": "-40",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 97934.2
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1625.14
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "1.1",
+        "R": "2k",
+        "TEMP_C": "-40",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 48966.6
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1625.14
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "1.1",
+        "R": "1k",
+        "TEMP_C": "125",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 104678.0
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1520.42
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "1.1",
+        "R": "1k",
+        "TEMP_C": "125",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 52339.8
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 1520.42
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "1n",
+        "PROCESS_SCALE": "1.1",
+        "R": "2k",
+        "TEMP_C": "125",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 1e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 52339.8
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 3040.84
+        }
+      },
+      "sample": 0
+    },
+    {
+      "case": {
+        "C": "2n",
+        "PROCESS_SCALE": "1.1",
+        "R": "2k",
+        "TEMP_C": "125",
+        "VDD": "1.1"
+      },
+      "metrics": {
+        "capacitance_f": {
+          "unit": "F",
+          "value": 2e-09
+        },
+        "cutoff_hz": {
+          "unit": "Hz",
+          "value": 26170.2
+        },
+        "resistance_ohm": {
+          "unit": "ohm",
+          "value": 3040.84
+        }
+      },
+      "sample": 0
+    }
+  ],
+  "run": {
+    "aggregate_activity_id": "3c1ab81f3d1ec3e7673b526a44f49849a67993140de48feccfc56106f1fa0830",
+    "contract": "regressistor.measurement-bundle/2",
+    "producer": "SimCairn",
+    "producer_identity": {
+      "adapter_implementation_sha256": "aaa76bb2654444ba0b5e8aee7c1e5908f9146c705c84aa6f766168d45eda6c4e",
+      "distribution": "simcairn",
+      "package_tree_algorithm": "simcairn-python-source-tree/1",
+      "package_tree_sha256": "8abfa550a6b576a176d3d81bb251d6d1cdefc440a32a6cf75911e4ab3ad702d0",
+      "validation_implementation_sha256": "90e27f73e3261bc58646bb49d8310d524afa29899a7a5523d789f383329ef4c4",
+      "version": "0.2.0"
+    }
+  },
+  "schema_version": 2
+}

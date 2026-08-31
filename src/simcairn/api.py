@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any
 
 from simcairn.fingerprints import stable_json
+from simcairn.gf180 import configure_gf180
 from simcairn.journal import latest_activity_states, replay
 from simcairn.manifest import Manifest, load_manifest
-from simcairn.model import Plan, RunReport
+from simcairn.model import Plan, RunReport, strict_json_loads
 from simcairn.planner import compile_plan
 from simcairn.scheduler import execute_plan
+from simcairn.sky130 import configure_sky130
 from simcairn.store import ArtifactStore, StoreError
 
 
@@ -56,7 +57,10 @@ class Runner:
         if not valid:
             raise StoreError(f"aggregate result is unavailable: {reason}")
         path = self.store.cache_path(aggregate.id) / "files" / "results.json"
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = strict_json_loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise StoreError(f"aggregate results.json is invalid: {error}") from error
         if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
             raise StoreError("aggregate results.json is not an array of objects")
         return data
@@ -78,4 +82,10 @@ class Runner:
         }
 
 
-__all__ = ["Runner", "compile_plan", "load_manifest"]
+__all__ = [
+    "Runner",
+    "compile_plan",
+    "configure_gf180",
+    "configure_sky130",
+    "load_manifest",
+]

@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If SimCairn supports your work, please cite this software."
+type: software
+title: "SimCairn"
+abstract: "Crash-resumable, content-addressed orchestration for reproducible SPICE sweeps."
+authors:
+  - family-names: "Yan"
+    given-names: "Weiping"
+repository-code: "https://github.com/appleweiping/SimCairn"
+url: "https://github.com/appleweiping/SimCairn"
+license: MIT
+version: 0.2.0
+date-released: 2026-08-31
+keywords:
+  - SPICE
+  - reproducibility
+  - simulation orchestration

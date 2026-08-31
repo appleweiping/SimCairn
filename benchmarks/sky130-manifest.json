@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "benchmark": "sky130-common-source-pvt",
+  "licenses": {
+    "benchmark_code": "MIT",
+    "local_pdk_model_cache": "Apache-2.0 (not vendored)"
+  },
+  "command": "simcairn configure-sky130 ../BiasWeave/benchmarks/sky130-sizing-decision.json configured --expected-topology TL-00052f7b8c5e --expected-signature 086ce3f4158fa05ea8fddf2e7552af1d9774f95faffbe4dee11fae262d8857c8 --expected-decision-sha256 b2c8682f543233727c395d9ce5b260a3201c9ebbaf71b97085add08eaf6393d8 --expected-benchmark-sha256 7f128312cad0b25b73a0c73e19ebd3fed8841428a237a8145f4d9699d3989214 --expected-comparison-sha256 0b265d1236aa3d273dc68e772f14c9002eaa2cf99a8feb3dfc11d747a059d267 --pdk-root /opt/pdks/sky130A && simcairn run configured/simcairn.toml --store configured/.simcairn",
+  "expected": {
+    "points": 27,
+    "successful_activities": 82,
+    "regression_contract": "regressistor.measurement-bundle/2",
+    "corners": ["tt", "ss", "ff"],
+    "voltages_v": ["1.62", "1.80", "1.98"],
+    "temperatures_c": ["-40", "27", "125"]
+  },
+  "decision_trust_anchors": {
+    "decision_sha256": "b2c8682f543233727c395d9ce5b260a3201c9ebbaf71b97085add08eaf6393d8",
+    "benchmark_sha256": "7f128312cad0b25b73a0c73e19ebd3fed8841428a237a8145f4d9699d3989214",
+    "comparison_sha256": "0b265d1236aa3d273dc68e772f14c9002eaa2cf99a8feb3dfc11d747a059d267"
+  },
+  "producer_identity": {
+    "distribution": "simcairn",
+    "version": "0.2.0",
+    "package_tree_algorithm": "simcairn-python-source-tree/1",
+    "package_tree_sha256": "8abfa550a6b576a176d3d81bb251d6d1cdefc440a32a6cf75911e4ab3ad702d0",
+    "validation_implementation_sha256": "90e27f73e3261bc58646bb49d8310d524afa29899a7a5523d789f383329ef4c4",
+    "adapter_implementation_sha256": "aaa76bb2654444ba0b5e8aee7c1e5908f9146c705c84aa6f766168d45eda6c4e"
+  },
+  "producer_distribution": {
+    "filename": "simcairn-0.2.0-py3-none-any.whl",
+    "sha256": "35cb0d7aa3aebff1459d8c5ee1936c0aab47de462f8e66b61fceb3a027c0dbff"
+  },
+  "validation": {
+    "implementation": "simcairn/reference.py",
+    "entrypoint": "benchmarks/validate_sky130.py",
+    "entrypoint_sha256": "7202b8645d1fdf2a5ab860f72b6c3d380bd163390bf9f636721d47395369316c"
+  },
+  "pdk": {
+    "provider": "Ciel",
+    "variant": "sky130A",
+    "revision": "1689ac3f2dc763876eaf967227c7dfe831b031ae",
+    "official_assets": {
+      "common.tar.zst": {
+        "bytes": 6593210,
+        "sha256": "92e3deed352b9a1aa53d47bc8f3de75e40dec013809c109d36ed4e8d13f74036"
+      },
+      "sky130_fd_pr.tar.zst": {
+        "bytes": 14147208,
+        "sha256": "79ac105aa2710acf358572aa3762b065bcdd9ed408dc64f3c32d9fb71cdd287e"
+      }
+    },
+    "nodeinfo_sha256": "22173652261ed85a27f9edad6f7bb670bb8cc92f5a672f2c4e3bdcd6be502ea7",
+    "model_sha256": {
+      "sky130_fd_pr__nfet_01v8__mismatch.corner.spice": "24a3b29d7d7f26f99098811c31eb5497950a3aed520ab83768a96f35467fe818",
+      "sky130_fd_pr__nfet_01v8__tt.pm3.spice": "459eca963a134574cf7c842ad6d3814e7e0752bfb5de8e581c2f483534b5ad06",
+      "sky130_fd_pr__nfet_01v8__ss.pm3.spice": "4a70607ef6e016b426e9b447fe75ca417cdb7e44fe98ca6d7f0319656e65ed0c",
+      "sky130_fd_pr__nfet_01v8__ff.pm3.spice": "abbf671996e76bf3e75ea2bb26036fa17b99f92599330e25bb814ac498b600fe"
+    }
+  },
+  "observation": {
+    "date": "2026-08-31",
+    "simulator_version": "ngspice-42",
+    "simulator_package": "ngspice 42+ds-3build1",
+    "adapter_identity": "simcairn-ngspice/2:ngspice-42",
+    "executable_sha256": "820658317b0b54035208da41936fd6871ce924036e5ea4113a4168b821b7fc45",
+    "solver": "KLU",
+    "platform": "Linux 6.18.33.2-microsoft-standard-WSL2 x86_64 (Ubuntu)",
+    "plan_id": "16c58dafaf31b7f6eec3da35250076452ce3723f7b9b42773014817ce0667395",
+    "aggregate_activity_id": "12fd500280c8efe2e52959353ce7d5e8e77d4fe78e2569d0135281becd18b5f3",
+    "observed_wall_seconds": 12.21,
+    "successful_activities": 82
+  },
+  "portable_configuration": {
+    "byte_identical_files_across_two_output_roots": 11,
+    "absolute_paths_in_provenance": false
+  },
+  "artifacts": {
+    "benchmarks/results/ngspice-42-sky130-pvt.json": "155b2d1d2e3eed4196b170a06d5bbaff7edd9fd011b0af060139db695e26e5dc",
+    "benchmarks/validate_sky130.py": "7202b8645d1fdf2a5ab860f72b6c3d380bd163390bf9f636721d47395369316c"
+  },
+  "local_run_artifacts": {
+    "plan.json": "6bb8cda09b44abe9549b7a0e4ef1afd74bfb29993c77eaf105639a45350cc80b",
+    "simcairn.toml": "e56598b0875a9820af63a60ea864d679b0d7cae27543818d4b236df9c439e5a8",
+    "sky130_common_source.sp.tmpl": "2ee7ce34f163ea07f60ddb82525b7d2ebccd1a0049ee54b8cfb443820f020a86",
+    "pdk-provenance.json": "0282934f73c4693ac892cae147b7df21ae5a60905116a2ce96c27598fbf25ec1",
+    "results.json": "15f76f3d66c3de040089ddba4be5148658b9fc57e64ea7dd9d4ccccf660a56d4",
+    "results.csv": "02cff00cf22c82490051cfacd1f386f2926db169f8accc0422cc87d7fedb5147",
+    "run-report.json": "d65a27f1220ce62e52bb2fc41b226b1e7b5be6ee1253b78797c12af9f977c4d3",
+    "regression-bundle.json": "155b2d1d2e3eed4196b170a06d5bbaff7edd9fd011b0af060139db695e26e5dc"
+  }
+}

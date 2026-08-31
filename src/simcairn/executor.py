@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import json
 import math
 import os
 import shutil
@@ -15,7 +14,7 @@ from pathlib import Path
 from simcairn.adapters import AdapterError, create_adapter
 from simcairn.fingerprints import sha256_file, stable_json
 from simcairn.manifest import SimulatorConfig
-from simcairn.model import Activity, ActivityOutcome
+from simcairn.model import Activity, ActivityOutcome, strict_json_loads
 from simcairn.store import ArtifactStore, StoreError
 from simcairn.templates import render_template
 
@@ -123,8 +122,8 @@ class ActivityExecutor:
             source = str(measure["source"])
             if source not in metrics_by_source:
                 try:
-                    value = json.loads((sandbox / source).read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError) as error:
+                    value = strict_json_loads((sandbox / source).read_text(encoding="utf-8"))
+                except (OSError, ValueError) as error:
                     raise ExecutionError(
                         f"cannot read measurement source {source}: {error}"
                     ) from error
@@ -147,11 +146,12 @@ class ActivityExecutor:
     @staticmethod
     def _aggregate(activity: Activity, sandbox: Path) -> None:
         rows: list[tuple[int, dict[str, object], dict[str, object]]] = []
+        measure_units = {item["name"]: item["unit"] for item in activity.payload["measures"]}
         for dependency in activity.dependencies:
             path = sandbox / "deps" / dependency / "extracted.json"
             try:
-                value = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as error:
+                value = strict_json_loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
                 raise ExecutionError(f"cannot aggregate {dependency[:12]}: {error}") from error
             if not isinstance(value, dict):
                 raise ExecutionError(f"cannot aggregate {dependency[:12]}: result is not an object")
@@ -168,12 +168,45 @@ class ActivityExecutor:
                 raise ExecutionError(
                     f"cannot aggregate {dependency[:12]}: metrics is not an object"
                 )
+            if set(metrics) != set(measure_units) or any(
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or not math.isfinite(value)
+                for value in metrics.values()
+            ):
+                raise ExecutionError(
+                    f"cannot aggregate {dependency[:12]}: metrics do not match finite measures"
+                )
             rows.append((point_index, point, metrics))
         rows.sort(key=lambda item: item[0])
         flattened: list[dict[str, object]] = []
         for _, point, metrics in rows:
             flattened.append({**point, **metrics})
         (sandbox / "results.json").write_text(stable_json(flattened), encoding="utf-8")
+        regression_points = [
+            {
+                "case": point,
+                "sample": 0,
+                "metrics": {
+                    name: {"value": value, "unit": measure_units[name]}
+                    for name, value in metrics.items()
+                },
+            }
+            for _, point, metrics in rows
+        ]
+        regression_bundle = {
+            "schema_version": 2,
+            "run": {
+                "producer": "SimCairn",
+                "producer_identity": activity.identity["producer_identity"],
+                "contract": "regressistor.measurement-bundle/2",
+                "aggregate_activity_id": activity.id,
+            },
+            "points": regression_points,
+        }
+        (sandbox / "regression-bundle.json").write_text(
+            stable_json(regression_bundle), encoding="utf-8"
+        )
         fieldnames: list[str] = []
         for row in flattened:
             for name in row:

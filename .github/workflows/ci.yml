@@ -40,15 +40,42 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install uv==0.11.21
+      - run: uv sync --frozen --extra dev
       - if: matrix.quality
-        run: ruff check . && ruff format --check .
+        run: uv run --frozen ruff check . && uv run --frozen ruff format --check .
       - if: matrix.quality
-        run: mypy --python-version 3.11 src
+        run: uv run --frozen mypy --python-version 3.11 src
       - if: matrix.quality
-        run: bandit -q -r src
-      - run: pytest --cov=simcairn --cov-report=term-missing
+        run: uv run --frozen bandit -q -r src
+      - run: uv run --frozen pytest --cov=simcairn --cov-report=term-missing
       - if: matrix.quality
-        run: python -m build
+        run: uv run --frozen python -m build
+
+  ngspice-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install ngspice and SimCairn
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ngspice
+          python -m pip install uv==0.11.21
+          uv sync --frozen --extra dev
+      - name: Verify the pinned ngspice 42 numeric reference
+        run: |
+          version_output="$(ngspice --version)"
+          printf '%s\n' "$version_output"
+          printf '%s\n' "$version_output" | grep -Eiq 'ngspice-42([^0-9]|$)'
+          uname -a
+          sha256sum "$(command -v ngspice)"
+          uv run --frozen simcairn run examples/rc_pvt/ngspice.toml --store .ngspice-reference-store
+          bundle="$(find .ngspice-reference-store/cache -path '*/files/regression-bundle.json' -print -quit)"
+          test -n "$bundle"
+          uv run --frozen python benchmarks/verify_reference.py "$bundle" benchmarks/results/ngspice-42-rc-pvt.json

@@ -1,0 +1,39 @@
+version = 1
+
+[simulator]
+adapter = "mock-rc"
+
+[template]
+deck = "rc_pvt.sp.tmpl"
+inputs = []
+
+[sweep]
+mode = "product"
+PROCESS_SCALE = ["0.9", "1.1"]
+VDD = ["0.9", "1.1"]
+TEMP_C = ["-40", "125"]
+R = ["1k", "2k"]
+C = ["1n", "2n"]
+
+[run]
+timeout_seconds = 30
+jobs = 2
+fail_fast = true
+
+[[measure]]
+name = "cutoff_hz"
+source = "metrics.json"
+field = "cutoff_hz"
+unit = "Hz"
+
+[[measure]]
+name = "resistance_ohm"
+source = "metrics.json"
+field = "resistance_ohm"
+unit = "ohm"
+
+[[measure]]
+name = "capacitance_f"
+source = "metrics.json"
+field = "capacitance_f"
+unit = "F"
