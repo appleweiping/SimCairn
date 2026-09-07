@@ -1,0 +1,168 @@
+{
+  "schema": "org.simcairn.ciel-replay-assets",
+  "version": 1,
+  "revision": "1689ac3f2dc763876eaf967227c7dfe831b031ae",
+  "release_repository": "https://github.com/fossi-foundation/ciel-releases",
+  "release_repository_id": 966850989,
+  "families": {
+    "sky130": {
+      "variant": "sky130A",
+      "release": {
+        "id": 377963979,
+        "tag": "sky130-1689ac3f2dc763876eaf967227c7dfe831b031ae",
+        "api_url": "https://api.github.com/repos/fossi-foundation/ciel-releases/releases/tags/sky130-1689ac3f2dc763876eaf967227c7dfe831b031ae",
+        "draft": false,
+        "prerelease": false,
+        "immutable": false
+      },
+      "assets": [
+        {
+          "id": 532551086,
+          "name": "common.tar.zst",
+          "api_url": "https://api.github.com/repos/fossi-foundation/ciel-releases/releases/assets/532551086",
+          "content_type": "application/zstd",
+          "bytes": 6593210,
+          "sha256": "92e3deed352b9a1aa53d47bc8f3de75e40dec013809c109d36ed4e8d13f74036",
+          "tar_bytes": 66938880,
+          "tar_sha256": "0d1b3a0273a362055182dbddbcd864c551289e5af71355cff389ae581722c790",
+          "members": [
+            {
+              "path": "sky130A/.config/nodeinfo.json",
+              "bytes": 3288,
+              "sha256": "22173652261ed85a27f9edad6f7bb670bb8cc92f5a672f2c4e3bdcd6be502ea7"
+            }
+          ]
+        },
+        {
+          "id": 532554533,
+          "name": "sky130_fd_pr.tar.zst",
+          "api_url": "https://api.github.com/repos/fossi-foundation/ciel-releases/releases/assets/532554533",
+          "content_type": "application/zstd",
+          "bytes": 14147208,
+          "sha256": "79ac105aa2710acf358572aa3762b065bcdd9ed408dc64f3c32d9fb71cdd287e",
+          "tar_bytes": 154306560,
+          "tar_sha256": "473b219ba3f42d420f575d6e79d2351e801f083a7c2c8396f9996b1c60fe1d18",
+          "members": [
+            {
+              "path": "sky130A/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__nfet_01v8__mismatch.corner.spice",
+              "bytes": 962,
+              "sha256": "24a3b29d7d7f26f99098811c31eb5497950a3aed520ab83768a96f35467fe818"
+            },
+            {
+              "path": "sky130A/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__nfet_01v8__tt.pm3.spice",
+              "bytes": 1137294,
+              "sha256": "459eca963a134574cf7c842ad6d3814e7e0752bfb5de8e581c2f483534b5ad06"
+            },
+            {
+              "path": "sky130A/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__nfet_01v8__ss.pm3.spice",
+              "bytes": 1140045,
+              "sha256": "4a70607ef6e016b426e9b447fe75ca417cdb7e44fe98ca6d7f0319656e65ed0c"
+            },
+            {
+              "path": "sky130A/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__nfet_01v8__ff.pm3.spice",
+              "bytes": 1141843,
+              "sha256": "abbf671996e76bf3e75ea2bb26036fa17b99f92599330e25bb814ac498b600fe"
+            }
+          ]
+        }
+      ],
+      "license": {
+        "spdx": "Apache-2.0",
+        "source_commit": "403964dc7f9cca5ec1a8cc7b4f2a6f532b781676",
+        "url": "https://github.com/fossi-foundation/skywater-pdk-libs-sky130_fd_pr/blob/403964dc7f9cca5ec1a8cc7b4f2a6f532b781676/LICENSE"
+      }
+    },
+    "gf180": {
+      "variant": "gf180mcuC",
+      "release": {
+        "id": 377966028,
+        "tag": "gf180mcu-1689ac3f2dc763876eaf967227c7dfe831b031ae",
+        "api_url": "https://api.github.com/repos/fossi-foundation/ciel-releases/releases/tags/gf180mcu-1689ac3f2dc763876eaf967227c7dfe831b031ae",
+        "draft": false,
+        "prerelease": false,
+        "immutable": false
+      },
+      "assets": [
+        {
+          "id": 532555010,
+          "name": "common.tar.zst",
+          "api_url": "https://api.github.com/repos/fossi-foundation/ciel-releases/releases/assets/532555010",
+          "content_type": "application/zstd",
+          "bytes": 170084745,
+          "sha256": "256586ecaea68886ce57942d83a86f82e6e1bc081badf6c9c9b70755f3456a41",
+          "tar_bytes": 733143040,
+          "tar_sha256": "842294f5185dc9afd756d6a39be8ddcbaeb8bb791704dc251e2c4b3c94308e9e",
+          "members": [
+            {
+              "path": "gf180mcuC/.config/nodeinfo.json",
+              "bytes": 2962,
+              "sha256": "8b96003d04744651f80946144035a78ed8862c25e87e879c4ee573bee08f7705"
+            },
+            {
+              "path": "gf180mcuC/libs.tech/ngspice/design.ngspice",
+              "bytes": 3167,
+              "sha256": "7e222f050318388f37543a64fbd0be55cc15e4b93f57501a09f7c159c4c9e561"
+            },
+            {
+              "path": "gf180mcuC/libs.tech/ngspice/sm141064.spice",
+              "bytes": 755400,
+              "sha256": "69a7ab877344a6d477fdd11440457f64e7ad88a624504a737a161da463de8bc8"
+            }
+          ]
+        },
+        {
+          "id": 532556058,
+          "name": "gf180mcu_fd_pr.tar.zst",
+          "api_url": "https://api.github.com/repos/fossi-foundation/ciel-releases/releases/assets/532556058",
+          "content_type": "application/zstd",
+          "bytes": 51212,
+          "sha256": "6b26fbf4aed755bddefcdb3610f5f957cc0a8a019e72c3abc9c611f9947d1f62",
+          "tar_bytes": 1382400,
+          "tar_sha256": "c09622511e80af91197306a44eeebd98567e7725b946618eb622dfa7fc5a2010",
+          "members": []
+        }
+      ],
+      "license": {
+        "spdx": "Apache-2.0",
+        "source_commit": "4d0b4cef59c7686fac5fd3f4c6fb41d251d1f90c",
+        "url": "https://github.com/fossi-foundation/globalfoundries-pdk-libs-gf180mcu_fd_pr/blob/4d0b4cef59c7686fac5fd3f4c6fb41d251d1f90c/LICENSE"
+      }
+    }
+  },
+  "decision": {
+    "url": "https://raw.githubusercontent.com/appleweiping/BiasWeave/b2d265cd6b9f89e5478b5fd2f4a8103c13f232a1/benchmarks/sky130-sizing-decision.json",
+    "bytes": 1158,
+    "sha256": "ce1642c1e5ba0e95a10652490fccb943f04f55be31e399cf2e7a1018977b9fe0",
+    "decision_sha256": "b2c8682f543233727c395d9ce5b260a3201c9ebbaf71b97085add08eaf6393d8",
+    "topology": "TL-00052f7b8c5e",
+    "signature": "086ce3f4158fa05ea8fddf2e7552af1d9774f95faffbe4dee11fae262d8857c8",
+    "benchmark_sha256": "7f128312cad0b25b73a0c73e19ebd3fed8841428a237a8145f4d9699d3989214",
+    "comparison_sha256": "0b265d1236aa3d273dc68e772f14c9002eaa2cf99a8feb3dfc11d747a059d267"
+  },
+  "replays": {
+    "rc": {
+      "sidecar": "benchmarks/manifest.json",
+      "reference": "benchmarks/results/ngspice-42-rc-pvt.json",
+      "reference_sha256": "bc76aa803969dac1980f646cc84d6dc10debde246b0d5f65954413f6fef8b4b0",
+      "expected_points": 32,
+      "expected_activities": 97,
+      "observation_path": ["observations", "real_ngspice"]
+    },
+    "sky130": {
+      "sidecar": "benchmarks/sky130-manifest.json",
+      "reference": "benchmarks/results/ngspice-42-sky130-pvt.json",
+      "reference_sha256": "155b2d1d2e3eed4196b170a06d5bbaff7edd9fd011b0af060139db695e26e5dc",
+      "expected_points": 27,
+      "expected_activities": 82,
+      "observation_path": ["observation"]
+    },
+    "gf180": {
+      "sidecar": "benchmarks/gf180-manifest.json",
+      "reference": "benchmarks/results/ngspice-42-gf180-pvt.json",
+      "reference_sha256": "f4e4b661eb1a141d17d66e785b55d93a0110524d1d3173f390e71408d7866fbc",
+      "expected_points": 27,
+      "expected_activities": 82,
+      "observation_path": ["observation"]
+    }
+  }
+}

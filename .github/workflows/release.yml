@@ -66,15 +66,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Python
+      - name: Set up exact Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
-          cache: pip
-      - name: Install pinned uv and frozen development environment
-        run: |
-          python -m pip install --disable-pip-version-check uv==0.11.21
-          uv sync --frozen --extra dev
+          python-version: "3.11.16"
+      - name: Set up checksum-verified uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.21"
+          checksum: 8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050
+          enable-cache: false
+          download-from-astral-mirror: false
+      - name: Install the frozen development environment
+        run: uv sync --frozen --extra dev
       - name: Run release quality gate
         run: |
           uv run --frozen ruff check .
@@ -117,6 +121,8 @@ jobs:
           import json
           from pathlib import Path
 
+          from simcairn.distribution_audit import audit_sdist, audit_wheel
+          from simcairn.pdk_replay import LOCKED_INVENTORY_SHA256
           from simcairn.provenance import current_producer_identity
 
           wheels = tuple(Path("dist").glob("*.whl"))
@@ -124,16 +130,19 @@ jobs:
           if len(wheels) != 1 or len(sdists) != 1 or len(tuple(Path("dist").iterdir())) != 2:
               raise SystemExit("expected exactly one wheel and one .tar.gz source distribution")
           with tarfile.open(sdists[0], "r:gz") as archive:
-              names = {"/".join(name.split("/")[1:]) for name in archive.getnames()}
+              names = audit_sdist(archive)
           required_source = {
               "CITATION.cff",
               "benchmarks/manifest.json",
+              "benchmarks/ciel-assets.json",
               "benchmarks/gf180-manifest.json",
               "benchmarks/sky130-manifest.json",
               "benchmarks/results/ngspice-42-gf180-pvt.json",
               "benchmarks/results/ngspice-42-rc-pvt.json",
               "benchmarks/results/ngspice-42-sky130-pvt.json",
               "benchmarks/validate_bundle.py",
+              "benchmarks/prepare_ciel_pdk.py",
+              "benchmarks/report_reference_replay.py",
               "benchmarks/validate_current_gf180.py",
               "benchmarks/validate_current_sky130.py",
               "benchmarks/validate_gf180.py",
@@ -141,14 +150,23 @@ jobs:
               "benchmarks/verify_current_reference.py",
               "benchmarks/verify_reference.py",
               "docs/validation.md",
+              "docs/real-reference-replay.md",
               "examples/rc_pvt/offline-golden.json",
+              "src/simcairn/distribution_audit.py",
               "src/simcairn/provenance.py",
+              "src/simcairn/pdk_replay.py",
               "src/simcairn/reference.py",
+              "src/simcairn/reference_replay.py",
           }
           if missing := required_source - names:
               raise SystemExit(f"source distribution is missing: {sorted(missing)}")
+          inventory_sha256 = hashlib.sha256(
+              Path("benchmarks/ciel-assets.json").read_bytes()
+          ).hexdigest()
+          if inventory_sha256 != LOCKED_INVENTORY_SHA256:
+              raise SystemExit("Ciel inventory differs from its wheel-embedded trust anchor")
           with zipfile.ZipFile(wheels[0]) as archive:
-              wheel_names = set(archive.namelist())
+              wheel_names = audit_wheel(archive)
               python_names = sorted(
                   name for name in wheel_names
                   if name.startswith("simcairn/") and name.endswith(".py")

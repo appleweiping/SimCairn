@@ -55,6 +55,11 @@ match the currently imported source and current fixed plan, then compare
 cases, units, and numeric values. Historical evidence is never relabelled just
 to make a newer release hash match it.
 
+A read-only, manually dispatched GitHub Actions replay can rerun all three
+real-simulator records from a clean current wheel without changing their
+frozen files. See [`docs/real-reference-replay.md`](docs/real-reference-replay.md)
+for its content pins, safe PDK extraction rules, and temporary evidence set.
+
 The GF180MCU integration also publishes a real 27-point
 `regressistor.measurement-bundle/2` artifact. Its PDK, simulator, physical
 invariants, and hashes are recorded in

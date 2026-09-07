@@ -1,0 +1,242 @@
+name: Replay real references
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-reference-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        case: [rc, sky130, gf180]
+    env:
+      LC_ALL: C.UTF-8
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONHASHSEED: "0"
+      TZ: UTC
+    steps:
+      - name: Check out the requested source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove this is the canonical main commit
+        run: |
+          test "$GITHUB_REPOSITORY" = 'appleweiping/SimCairn'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "$(git remote get-url origin)" in
+            https://github.com/appleweiping/SimCairn|https://github.com/appleweiping/SimCairn.git) ;;
+            *) echo 'origin is not the canonical SimCairn repository' >&2; exit 1 ;;
+          esac
+          git fetch --no-tags --force origin \
+            refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"
+
+      - name: Capture the complete checkout state
+        run: |
+          git status --porcelain=v1 --untracked-files=all > "$RUNNER_TEMP/repo-before.txt"
+          git ls-files --others --ignored --exclude-standard > "$RUNNER_TEMP/ignored-before.txt"
+          test ! -s "$RUNNER_TEMP/repo-before.txt"
+          test ! -s "$RUNNER_TEMP/ignored-before.txt"
+
+      - name: Set up exact Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11.16"
+
+      - name: Set up checksum-verified uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.21"
+          checksum: 8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050
+          enable-cache: false
+          download-from-astral-mirror: false
+
+      - name: Install and attest ngspice 42 and zstd 1.5.5
+        run: |
+          sudo apt-get update
+          mkdir -p "$RUNNER_TEMP/system-packages"
+          cd "$RUNNER_TEMP/system-packages"
+          apt-get download 'ngspice=42+ds-3build1'
+          apt-get download 'zstd=1.5.5+dfsg2-2build1.1'
+          mapfile -t packages < <(find . -maxdepth 1 -type f -name 'ngspice_*.deb' -print)
+          mapfile -t zstd_packages < <(find . -maxdepth 1 -type f -name 'zstd_*.deb' -print)
+          test "${#packages[@]}" -eq 1
+          test "${#zstd_packages[@]}" -eq 1
+          echo "466c4c06418107ceaa9c9457065b3bb71a9d9dc5ec6fef186d7de9d5208ce8db  ${packages[0]}" |
+            sha256sum --check --strict
+          echo "d7667f83e3a2caeaaecaca464d542ee6ccf537259a479622796c84afc96d6032  ${zstd_packages[0]}" |
+            sha256sum --check --strict
+          sudo apt-get install --yes --no-install-recommends "${packages[0]}" "${zstd_packages[0]}"
+          test "$(dpkg-query --show --showformat='${Version}' ngspice)" = '42+ds-3build1'
+          test "$(dpkg-query --show --showformat='${Version}' zstd)" = '1.5.5+dfsg2-2build1.1'
+          test -f /usr/bin/ngspice
+          test ! -L /usr/bin/ngspice
+          echo '820658317b0b54035208da41936fd6871ce924036e5ea4113a4168b821b7fc45  /usr/bin/ngspice' |
+            sha256sum --check --strict
+          version_output="$(ngspice --version 2>&1)"
+          printf '%s\n' "$version_output"
+          printf '%s\n' "$version_output" | grep -Eiq 'ngspice-42([^0-9]|$)'
+          printf '%s\n' "$version_output" | grep -Fq 'KLU Direct Linear Solver'
+          test -f /usr/bin/zstd
+          test ! -L /usr/bin/zstd
+          echo '7c5468b370f7c47eda07281e3437fafc568f95d10420051e3aa522709f9342c5  /usr/bin/zstd' |
+            sha256sum --check --strict
+          /usr/bin/zstd --version | grep -Fq 'v1.5.5'
+
+      - name: Build and install a clean current wheel outside the checkout
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/build-env
+        run: |
+          uv sync --frozen --extra dev
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
+          mkdir -p "$RUNNER_TEMP/wheel" "$RUNNER_TEMP/work"
+          uv run --frozen python -m build --wheel --no-isolation --outdir "$RUNNER_TEMP/wheel"
+          mapfile -t wheels < <(find "$RUNNER_TEMP/wheel" -maxdepth 1 -type f -name '*.whl' -print)
+          test "${#wheels[@]}" -eq 1
+          uv venv --python "$(command -v python)" "$RUNNER_TEMP/runtime"
+          uv pip install --python "$RUNNER_TEMP/runtime/bin/python" --no-deps "${wheels[0]}"
+          "$RUNNER_TEMP/runtime/bin/python" -I - <<'PY' > "$RUNNER_TEMP/work/producer-identity.json"
+          import json
+          from simcairn.provenance import current_producer_identity
+
+          print(json.dumps(current_producer_identity().as_dict(), sort_keys=True, separators=(",", ":")))
+          PY
+          printf '%s\n' "${wheels[0]}" > "$RUNNER_TEMP/work/wheel-path.txt"
+
+      - name: Record the executable environment
+        run: |
+          {
+            printf 'source_commit=%s\n' "$GITHUB_SHA"
+            printf 'runner_os=%s\n' "$RUNNER_OS"
+            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            uname -a
+            python --version
+            uv --version
+            dpkg-query --show --showformat='ngspice_package=${Package} ${Version}\n' ngspice
+            ngspice --version 2>&1
+            sha256sum /usr/bin/ngspice
+            /usr/bin/zstd --version
+            sha256sum /usr/bin/zstd
+            ldd /usr/bin/ngspice
+          } > "$RUNNER_TEMP/work/environment.txt"
+
+      - name: Fetch and verify the minimal Ciel inputs
+        if: matrix.case != 'rc'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          "$RUNNER_TEMP/runtime/bin/python" benchmarks/prepare_ciel_pdk.py "${{ matrix.case }}" \
+            --inventory benchmarks/ciel-assets.json \
+            --pdk-base "$RUNNER_TEMP/pdks" \
+            --download-directory "$RUNNER_TEMP/downloads" \
+            --decision-output "$RUNNER_TEMP/work/decision.json" \
+            --evidence-output "$RUNNER_TEMP/work/pdk-fetch.json" \
+            --zstd /usr/bin/zstd
+
+      - name: Run and validate the current reference
+        env:
+          REPLAY_CASE: ${{ matrix.case }}
+        run: |
+          cli="$RUNNER_TEMP/runtime/bin/simcairn"
+          python="$RUNNER_TEMP/runtime/bin/python"
+          configured="$RUNNER_TEMP/work/configured"
+          case "$REPLAY_CASE" in
+            rc)
+              manifest=examples/rc_pvt/ngspice.toml
+              reference=benchmarks/results/ngspice-42-rc-pvt.json
+              ;;
+            sky130|gf180)
+              variant=sky130A
+              configure="configure-sky130"
+              validator=benchmarks/validate_current_sky130.py
+              reference=benchmarks/results/ngspice-42-sky130-pvt.json
+              if test "$REPLAY_CASE" = gf180; then
+                variant=gf180mcuC
+                configure="configure-gf180"
+                validator=benchmarks/validate_current_gf180.py
+                reference=benchmarks/results/ngspice-42-gf180-pvt.json
+              fi
+              "$cli" "$configure" "$RUNNER_TEMP/work/decision.json" "$configured" \
+                --expected-topology TL-00052f7b8c5e \
+                --expected-signature 086ce3f4158fa05ea8fddf2e7552af1d9774f95faffbe4dee11fae262d8857c8 \
+                --expected-decision-sha256 b2c8682f543233727c395d9ce5b260a3201c9ebbaf71b97085add08eaf6393d8 \
+                --expected-benchmark-sha256 7f128312cad0b25b73a0c73e19ebd3fed8841428a237a8145f4d9699d3989214 \
+                --expected-comparison-sha256 0b265d1236aa3d273dc68e772f14c9002eaa2cf99a8feb3dfc11d747a059d267 \
+                --pdk-root "$RUNNER_TEMP/pdks/versions/1689ac3f2dc763876eaf967227c7dfe831b031ae/$variant"
+              manifest="$configured/simcairn.toml"
+              ;;
+            *)
+              echo "unsupported replay case: $REPLAY_CASE" >&2
+              exit 2
+              ;;
+          esac
+          "$cli" plan "$manifest" > "$RUNNER_TEMP/work/plan.json"
+          "$cli" run "$manifest" --store "$RUNNER_TEMP/work/store" \
+            > "$RUNNER_TEMP/work/run-result.json"
+          aggregate_id="$("$python" -c \
+            'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["activities"][-1]["id"])' \
+            "$RUNNER_TEMP/work/plan.json")"
+          actual="$RUNNER_TEMP/work/store/cache/$aggregate_id/files/regression-bundle.json"
+          test -f "$actual"
+          if test "$REPLAY_CASE" = rc; then
+            "$python" benchmarks/verify_current_reference.py "$actual" "$reference" \
+              --manifest "$manifest"
+          else
+            "$python" "$validator" "$actual" --reference "$reference" --manifest "$manifest"
+          fi
+          mapfile -t wheels < <(find "$RUNNER_TEMP/wheel" -maxdepth 1 -type f -name '*.whl' -print)
+          report=(
+            "$REPLAY_CASE"
+            --inventory benchmarks/ciel-assets.json
+            --actual "$actual"
+            --plan "$RUNNER_TEMP/work/plan.json"
+            --run-result "$RUNNER_TEMP/work/run-result.json"
+            --wheel "${wheels[0]}"
+            --environment "$RUNNER_TEMP/work/environment.txt"
+            --output "$RUNNER_TEMP/evidence/$REPLAY_CASE"
+          )
+          if test "$REPLAY_CASE" != rc; then
+            report+=(--pdk-fetch "$RUNNER_TEMP/work/pdk-fetch.json")
+          fi
+          "$python" benchmarks/report_reference_replay.py "${report[@]}"
+
+      - name: Prove the checkout was not changed
+        if: always()
+        run: |
+          git status --porcelain=v1 --untracked-files=all > "$RUNNER_TEMP/repo-after.txt"
+          git ls-files --others --ignored --exclude-standard > "$RUNNER_TEMP/ignored-after.txt"
+          diff --unified "$RUNNER_TEMP/repo-before.txt" "$RUNNER_TEMP/repo-after.txt"
+          diff --unified "$RUNNER_TEMP/ignored-before.txt" "$RUNNER_TEMP/ignored-after.txt"
+
+      - name: Upload only bounded replay evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: real-reference-${{ matrix.case }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/evidence/${{ matrix.case }}/actual-bundle.json
+            ${{ runner.temp }}/evidence/${{ matrix.case }}/environment.txt
+            ${{ runner.temp }}/evidence/${{ matrix.case }}/pdk-fetch.json
+            ${{ runner.temp }}/evidence/${{ matrix.case }}/plan.json
+            ${{ runner.temp }}/evidence/${{ matrix.case }}/run-result.json
+            ${{ runner.temp }}/evidence/${{ matrix.case }}/summary.json
+            ${{ runner.temp }}/evidence/${{ matrix.case }}/wheel.sha256
+          if-no-files-found: warn
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 7
