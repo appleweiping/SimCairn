@@ -4,6 +4,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ## Unreleased
 
+## [0.3.0] - 2026-09-07
+
 ### Added
 
 - `simcairn store-status`: what the store holds, broken down by cache, runs and work, with
@@ -21,6 +23,10 @@ All notable changes are documented here. Versions follow Semantic Versioning.
   `apply_collection`, and `directory_bytes`.
 - Current-reference entrypoints that bind a fresh bundle to the currently imported source and
   fixed current plan while preserving the identities of frozen 0.2.0 observations.
+- An authenticated manual replay of the frozen RC, SKY130A, and GF180MCU references using a
+  freshly built wheel, exact Ciel assets, ngspice 42, and bounded verification evidence.
+- A reusable distribution audit that rejects ambiguous, unsafe, or incomplete wheel and sdist
+  archive shapes before release.
 
 ### Changed
 
@@ -52,6 +58,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
   store can neither inflate a total nor be walked into.
 - Windows process start markers use the native kernel API instead of a child PowerShell process;
   current-process markers are cached by PID without caching arbitrary owners' liveness.
+- Real-PDK replay authenticates every archive member before selective materialization, pins all
+  executable inputs by digest, proves a canonical clean checkout, and never uploads PDK content.
 
 ## [0.2.0] - 2026-08-31
 
