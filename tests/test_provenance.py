@@ -28,7 +28,7 @@ def test_current_producer_identity_hashes_the_imported_package() -> None:
     identity = current_producer_identity()
     package = ROOT / "src" / "simcairn"
     assert identity.distribution == "simcairn"
-    assert identity.version == __version__ == "0.2.0"
+    assert identity.version == __version__ == "0.3.0"
     assert (
         identity.validation_implementation_sha256
         == hashlib.sha256((package / "reference.py").read_bytes()).hexdigest()
@@ -79,7 +79,7 @@ def test_producer_identity_is_bound_to_every_activity_and_plan(
     expected = current_producer_identity().as_dict()
     assert all(activity.identity["producer_identity"] == expected for activity in first.activities)
 
-    changed = replace(current_producer_identity(), version="0.2.0+different")
+    changed = replace(current_producer_identity(), version="0.3.0+different")
     monkeypatch.setattr(planner_module, "current_producer_identity", lambda: changed)
     second = compile_plan(manifest)
     assert first.id != second.id
@@ -90,7 +90,7 @@ def test_producer_identity_is_bound_to_every_activity_and_plan(
 
 def test_saved_plan_rejects_producer_identity_tampering() -> None:
     data = compile_plan(load_manifest(EXAMPLE)).as_dict()
-    data["activities"][0]["identity"]["producer_identity"]["version"] = "0.2.0+forged"
+    data["activities"][0]["identity"]["producer_identity"]["version"] = "0.3.0+forged"
     with pytest.raises(ValueError, match="activity id"):
         Plan.from_dict(data)
 
