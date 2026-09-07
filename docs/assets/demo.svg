@@ -10,13 +10,13 @@
   <g font-family="Consolas, 'Courier New', monospace" font-size="17">
     <text x="24" y="76" fill="#93c5fd">PS&gt; <tspan fill="#f8fafc">uv run simcairn validate examples\rc_sweep\simcairn.toml</tspan></text>
     <text x="24" y="104" fill="#a7f3d0">valid manifest: 19 activities, plan ba21ae3989cb</text>
-    <text x="24" y="148" fill="#93c5fd">PS&gt; <tspan fill="#f8fafc">uv run simcairn status ba21ae3989cb-0001 --store build\demo-store</tspan></text>
+    <text x="24" y="148" fill="#93c5fd">PS&gt; <tspan fill="#f8fafc">uv run simcairn status ba21ae3989cb-8e3f8d2a745b4c03a912fe91c0876a42 --store build\demo-store</tspan></text>
     <text x="24" y="180" fill="#e2e8f0">{</text>
     <text x="24" y="206" fill="#e2e8f0">  "counts": {</text>
     <text x="24" y="232" fill="#e2e8f0">    "succeeded": 19</text>
     <text x="24" y="258" fill="#e2e8f0">  },</text>
     <text x="24" y="284" fill="#e2e8f0">  "events": 40,</text>
-    <text x="24" y="310" fill="#e2e8f0">  "run_id": "ba21ae3989cb-0001",</text>
+    <text x="24" y="310" fill="#e2e8f0">  "run_id": "ba21ae3989cb-8e3f8d2a745b4c03a912fe91c0876a42",</text>
     <text x="24" y="336" fill="#e2e8f0">  "status": "succeeded"</text>
     <text x="24" y="362" fill="#e2e8f0">}</text>
     <text x="24" y="400" fill="#93c5fd">PS&gt; <tspan fill="#f8fafc">$cached = uv run simcairn run examples\rc_sweep\simcairn.toml --store build\demo-store | ConvertFrom-Json</tspan></text>

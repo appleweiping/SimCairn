@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,69 +21,73 @@ ROOT = Path(__file__).parents[1]
 REFERENCE = ROOT / "benchmarks" / "results" / "ngspice-42-rc-pvt.json"
 GF180_REFERENCE = ROOT / "benchmarks" / "results" / "ngspice-42-gf180-pvt.json"
 SKY130_REFERENCE = ROOT / "benchmarks" / "results" / "ngspice-42-sky130-pvt.json"
+CURRENT_ACTIVITY_ID = "a" * 64
+
+
+def _current_actual(
+    source: Path = REFERENCE, *, activity_id: str = CURRENT_ACTIVITY_ID
+) -> dict[str, Any]:
+    value = json.loads(source.read_text(encoding="utf-8"))
+    value["run"]["producer_identity"] = current_producer_identity().as_dict()
+    value["run"]["aggregate_activity_id"] = activity_id
+    return value
+
+
+def _write_bundle(path: Path, value: object) -> Path:
+    path.write_text(json.dumps(value), encoding="utf-8")
+    return path
 
 
 def test_reference_verifier_accepts_recorded_bundle_and_detects_drift(tmp_path: Path) -> None:
     validate_bundle(REFERENCE, expected_points=32)
     with pytest.raises(ValueError, match="31 points"):
         validate_bundle(REFERENCE, expected_points=31)
-    verify_reference(REFERENCE, REFERENCE)
-    value = json.loads(REFERENCE.read_text(encoding="utf-8"))
+    actual = _write_bundle(tmp_path / "actual.json", _current_actual())
+    verify_reference(actual, REFERENCE, expected_activity_id=CURRENT_ACTIVITY_ID)
+    value = _current_actual()
     value["points"][0]["metrics"]["cutoff_hz"]["value"] *= 1.1
-    changed = tmp_path / "changed.json"
-    changed.write_text(json.dumps(value), encoding="utf-8")
+    changed = _write_bundle(tmp_path / "changed.json", value)
     with pytest.raises(ValueError, match="differs"):
-        verify_reference(changed, REFERENCE)
+        verify_reference(changed, REFERENCE, expected_activity_id=CURRENT_ACTIVITY_ID)
 
 
-def test_benchmark_manifest_hashes_are_current() -> None:
-    producer_identity = current_producer_identity().as_dict()
-    for name in ("manifest.json", "gf180-manifest.json", "sky130-manifest.json"):
+def test_historical_benchmark_manifests_still_bind_their_exact_artifacts() -> None:
+    records = (
+        ("manifest.json", REFERENCE, "observations", "real_ngspice"),
+        ("gf180-manifest.json", GF180_REFERENCE, "observation", None),
+        ("sky130-manifest.json", SKY130_REFERENCE, "observation", None),
+    )
+    for name, bundle_path, observation_key, nested_key in records:
         manifest = json.loads((ROOT / "benchmarks" / name).read_text(encoding="utf-8"))
+        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
         assert manifest["schema_version"] == 2
-        assert manifest["producer_identity"] == producer_identity
+        assert manifest["producer_identity"] == bundle["run"]["producer_identity"]
+        observation = manifest[observation_key]
+        if nested_key is not None:
+            observation = observation[nested_key]
+        assert observation["aggregate_activity_id"] == bundle["run"]["aggregate_activity_id"]
+        assert manifest["expected"]["points"] == len(bundle["points"])
         for relative, expected in manifest["artifacts"].items():
             assert sha256((ROOT / relative).read_bytes()).hexdigest() == expected
 
-    gf180_manifest = json.loads(
-        (ROOT / "benchmarks" / "gf180-manifest.json").read_text(encoding="utf-8")
-    )
-    gf180_bundle = json.loads(GF180_REFERENCE.read_text(encoding="utf-8"))
-    assert gf180_manifest["expected"]["points"] == len(gf180_bundle["points"]) == 27
-    assert (
-        gf180_manifest["observation"]["aggregate_activity_id"]
-        == gf180_bundle["run"]["aggregate_activity_id"]
-    )
 
-    sky130_manifest = json.loads(
-        (ROOT / "benchmarks" / "sky130-manifest.json").read_text(encoding="utf-8")
-    )
-    sky130_bundle = json.loads(SKY130_REFERENCE.read_text(encoding="utf-8"))
-    assert sky130_manifest["expected"]["points"] == len(sky130_bundle["points"]) == 27
-    assert (
-        sky130_manifest["observation"]["aggregate_activity_id"]
-        == sky130_bundle["run"]["aggregate_activity_id"]
-    )
-    rc_manifest = json.loads((ROOT / "benchmarks" / "manifest.json").read_text(encoding="utf-8"))
-    rc_bundle = json.loads(REFERENCE.read_text(encoding="utf-8"))
-    assert rc_manifest["expected"]["points"] == len(rc_bundle["points"]) == 32
-    assert (
-        rc_manifest["observations"]["real_ngspice"]["aggregate_activity_id"]
-        == rc_bundle["run"]["aggregate_activity_id"]
-    )
-
-
-def test_ngspice_reference_is_bound_to_the_fixed_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ngspice_reference_is_bound_to_the_fixed_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         NgspiceAdapter,
         "identity",
         lambda _self: "simcairn-ngspice/2:ngspice-42",
     )
     plan = compile_plan(load_manifest(ROOT / "examples" / "rc_pvt" / "ngspice.toml"))
-    reference = json.loads(REFERENCE.read_text(encoding="utf-8"))
-    assert plan.id == "0583a316260354341001e46e0acb85e73f4816867254e6ec44b2519d38fdd1cf"
     assert plan.activities[-1].kind == "aggregate"
-    assert reference["run"]["aggregate_activity_id"] == plan.activities[-1].id
+    actual = _write_bundle(
+        tmp_path / "current-reference.json",
+        _current_actual(activity_id=plan.activities[-1].id),
+    )
+    verify_reference(actual, REFERENCE, expected_activity_id=plan.activities[-1].id)
+    with pytest.raises(ValueError, match="current plan"):
+        verify_reference(actual, REFERENCE, expected_activity_id="b" * 64)
 
 
 def test_reference_verifier_rejects_ambiguous_and_invalid_contracts(tmp_path: Path) -> None:
@@ -95,7 +100,7 @@ def test_reference_verifier_rejects_ambiguous_and_invalid_contracts(tmp_path: Pa
     with pytest.raises(ValueError, match="non-finite"):
         verify_reference(nonfinite, REFERENCE)
 
-    original = json.loads(REFERENCE.read_text(encoding="utf-8"))
+    original = _current_actual()
     mutations = [
         (lambda value: value.update(schema_version=True), "schema"),
         (lambda value: value.update(schema_version=1.0), "schema"),
@@ -119,7 +124,7 @@ def test_reference_verifier_rejects_ambiguous_and_invalid_contracts(tmp_path: Pa
         path = tmp_path / f"invalid-{index}.json"
         path.write_text(json.dumps(value), encoding="utf-8")
         with pytest.raises(ValueError, match=message):
-            verify_reference(path, REFERENCE)
+            verify_reference(path, REFERENCE, expected_activity_id=CURRENT_ACTIVITY_ID)
 
 
 def test_v1_bundle_is_rejected_fail_closed(tmp_path: Path) -> None:
@@ -134,21 +139,21 @@ def test_v1_bundle_is_rejected_fail_closed(tmp_path: Path) -> None:
 
 
 def test_reference_verifier_binds_exact_producer_identity(tmp_path: Path) -> None:
-    original = json.loads(REFERENCE.read_text(encoding="utf-8"))
+    original = _current_actual()
 
     changed = json.loads(json.dumps(original))
     changed["run"]["producer_identity"]["package_tree_sha256"] = "0" * 64
     changed_path = tmp_path / "changed-producer.json"
     changed_path.write_text(json.dumps(changed), encoding="utf-8")
-    with pytest.raises(ValueError, match="producer implementation identity"):
-        verify_reference(changed_path, REFERENCE)
+    with pytest.raises(ValueError, match="imported implementation"):
+        verify_reference(changed_path, REFERENCE, expected_activity_id=CURRENT_ACTIVITY_ID)
 
     invalid = json.loads(json.dumps(original))
     invalid["run"]["producer_identity"]["adapter_implementation_sha256"] = "A" * 64
     invalid_path = tmp_path / "invalid-producer.json"
     invalid_path.write_text(json.dumps(invalid), encoding="utf-8")
     with pytest.raises(ValueError, match="invalid producer identity"):
-        verify_reference(invalid_path, REFERENCE)
+        verify_reference(invalid_path, REFERENCE, expected_activity_id=CURRENT_ACTIVITY_ID)
 
 
 def test_reference_verifier_bounds_json_resources(tmp_path: Path) -> None:

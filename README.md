@@ -49,6 +49,11 @@ project-generated mock. See [`docs/validation.md`](docs/validation.md) and
 [`benchmarks/manifest.json`](benchmarks/manifest.json) for commands and hashes.
 Bundle version 2 is a deliberate breaking contract: version-1 inputs are
 rejected rather than silently treated as producer-authenticated evidence.
+Frozen bundles keep the producer and aggregate identities of the run that
+recorded them. Fresh reference checks separately require the actual bundle to
+match the currently imported source and current fixed plan, then compare
+cases, units, and numeric values. Historical evidence is never relabelled just
+to make a newer release hash match it.
 
 The GF180MCU integration also publishes a real 27-point
 `regressistor.measurement-bundle/2` artifact. Its PDK, simulator, physical
@@ -263,8 +268,17 @@ nothing. Only `--apply` deletes, and only what the plan named.
 references, whatever its age. A lock is judged live unless it is *positively*
 stale: a lock held on another host, or one whose owner cannot be identified,
 counts as live. The uncertain case has to be the safe one. The plan is
-re-checked as it is applied, so a run that acquired a lock in between is
-skipped rather than removed.
+re-checked as it is applied: a run that acquired a lock is skipped, surviving
+plans are reloaded before cache deletion, and work is retained when a live lock
+appeared.
+
+Run creation and lock acquisition publish short reader leases; collection
+holds the exclusive writer lease and takes a fresh survey. Existing
+simulations continue while collection runs because their visible per-run locks
+protect plans, cache entries, and work. Lock release is atomic and does not
+wait for collection. New run IDs include a 128-bit generation suffix, so a
+stale plan cannot name a later run after the original directory was removed.
+Existing numeric run IDs remain readable.
 
 **An entry that cannot be read is kept**, not swept up. A corrupt cairn is
 evidence about a failure someone may want to look at, and deleting evidence to
@@ -279,6 +293,10 @@ retained run cannot be read, no entry is collectable and the plan says so.
 
 Work sandboxes are removed only when no run in the store holds a live lock,
 because a sandbox carries no record of which run owns it.
+
+Before the first deletion, every planned name and the `runs`, `cache`, and
+`work` roots are validated; validation is repeated under the writer lease.
+Traversal, symbolic-link, and junction redirection fail closed.
 
 `--keep-runs N` sets how many recent runs survive; a locked run survives
 regardless.

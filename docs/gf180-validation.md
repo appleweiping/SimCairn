@@ -16,8 +16,9 @@ current, and power consistency checks in `benchmarks/validate_gf180.py`.
 The real run used the frozen SimCairn 0.2.0 wheel with SHA-256
 `35cb0d7aa3aebff1459d8c5ee1936c0aab47de462f8e66b61fceb3a027c0dbff`.
 This digest identifies the validation-run archive. Release wheels are bound by
-recomputing the same package-tree, validator, and adapter identities rather than
-by assuming ZIP archives are byte-for-byte reproducible.
+recomputing their own package-tree, validator, and adapter identities from the
+checked-out source rather than by assuming ZIP archives are byte-for-byte
+reproducible or requiring them to equal this historical run.
 The bundle binds package-tree SHA-256
 `8abfa550a6b576a176d3d81bb251d6d1cdefc440a32a6cf75911e4ab3ad702d0`,
 `simcairn/reference.py` SHA-256
@@ -27,6 +28,12 @@ and adapter implementation SHA-256
 The manifest separately binds the actual `benchmarks/validate_gf180.py`
 entrypoint SHA-256, so the packaged validation implementation and its invoking
 script are not conflated.
+
+A fresh numeric comparison uses
+`python benchmarks/validate_current_gf180.py ACTUAL --reference benchmarks/results/ngspice-42-gf180-pvt.json --manifest CONFIGURED/simcairn.toml`.
+The verifier binds `ACTUAL` to the current imported implementation and the
+aggregate compiled from `CONFIGURED/simcairn.toml`; this recorded bundle keeps
+the historical identities above unchanged.
 
 | Measure | Minimum | Maximum |
 |---|---:|---:|

@@ -10,6 +10,7 @@ from pathlib import Path
 from simcairn import maintenance
 from simcairn._version import __version__
 from simcairn.api import Runner, compile_plan, configure_gf180, configure_sky130, load_manifest
+from simcairn.coordination import StoreCoordinationError, StoreReadLease
 from simcairn.fingerprints import stable_json
 from simcairn.gf180 import GF180ConfigurationError
 from simcairn.journal import JournalError, clear_run_lock
@@ -117,8 +118,10 @@ def _store_gc(args: argparse.Namespace) -> int:
 
 def _unlock(args: argparse.Namespace) -> int:
     runner = _runner(args)
-    directory = runner.store.run_directory(args.run_id)
-    sys.stdout.write(stable_json(clear_run_lock(directory, force=args.force)))
+    with StoreReadLease(runner.store.root):
+        directory = runner.store.run_directory(args.run_id)
+        result = clear_run_lock(directory, force=args.force)
+    sys.stdout.write(stable_json(result))
     return 0
 
 
@@ -266,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.handler(args))
     except (
         ManifestError,
+        StoreCoordinationError,
         StoreError,
         JournalError,
         Sky130ConfigurationError,

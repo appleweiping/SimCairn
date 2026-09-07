@@ -12,6 +12,7 @@ import sys
 from collections.abc import Callable
 from contextlib import AbstractContextManager, suppress
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -68,6 +69,15 @@ def _probe_process(pid: int) -> tuple[str, str | None]:
     return "dead", None
 
 
+@lru_cache(maxsize=4)
+def _probe_current_process(pid: int) -> tuple[str, str | None]:
+    """Cache only this interpreter's marker; the PID key keeps forks separate."""
+
+    if pid != os.getpid():
+        return "unknown", None
+    return _probe_process(pid)
+
+
 def _owner_state(owner: object) -> str:
     if not isinstance(owner, dict):
         return "unknown"
@@ -91,7 +101,9 @@ def _owner_state(owner: object) -> str:
         return "unknown"
     if recorded_marker == "unknown":
         return "unknown"
-    status, current_marker = _probe_process(pid)
+    status, current_marker = (
+        _probe_current_process(pid) if pid == os.getpid() else _probe_process(pid)
+    )
     if status == "dead":
         return "stale"
     if status == "alive" and current_marker != recorded_marker:
@@ -133,6 +145,23 @@ def _remove_directory_lock(path: Path, marker: Path, raw: bytes) -> None:
         raise JournalError("run.lock changed during unlock; retry") from error
 
 
+def _lock_is_redirected(run_directory: Path, path: Path) -> bool:
+    """Treat a link or junction in place of the direct lock child as hostile."""
+
+    try:
+        resolved_run = run_directory.resolve()
+        expected = run_directory.absolute()
+        return (
+            run_directory.is_symlink()
+            or not run_directory.is_dir()
+            or resolved_run != expected
+            or path.is_symlink()
+            or path.resolve() != expected / "run.lock"
+        )
+    except (OSError, RuntimeError):
+        return True
+
+
 def run_lock_state(run_directory: Path) -> str | None:
     """Report a run lock without touching it.
 
@@ -148,8 +177,12 @@ def run_lock_state(run_directory: Path) -> str | None:
     """
 
     path = run_directory / "run.lock"
+    if path.is_symlink():
+        return "unknown"
     if not path.exists():
         return None
+    if _lock_is_redirected(run_directory, path):
+        return "unknown"
     try:
         if path.is_dir():
             _marker, _raw, owner = _directory_owner(path)
@@ -164,8 +197,12 @@ def clear_run_lock(run_directory: Path, *, force: bool = False) -> dict[str, Any
     """Remove a stale lock, or force an audited removal when ownership is uncertain."""
 
     path = run_directory / "run.lock"
+    if path.is_symlink():
+        raise JournalError("refusing to unlock a redirected run.lock")
     if not path.exists():
         return {"removed": False, "reason": "run is not locked"}
+    if _lock_is_redirected(run_directory, path):
+        raise JournalError("refusing to unlock a redirected run.lock")
     is_directory = path.is_dir()
     marker: Path | None = None
     if is_directory:
@@ -300,7 +337,9 @@ class RunLock(AbstractContextManager["RunLock"]):
         self._marker: Path | None = None
 
     def __enter__(self) -> RunLock:
-        process_status, process_start = _probe_process(os.getpid())
+        if _lock_is_redirected(self.path.parent, self.path):
+            raise JournalError("refusing to use a redirected or missing run directory")
+        process_status, process_start = _probe_current_process(os.getpid())
         payload = (
             canonical_json(
                 {
@@ -318,6 +357,8 @@ class RunLock(AbstractContextManager["RunLock"]):
             try:
                 self.path.mkdir()
             except FileExistsError as error:
+                if _lock_is_redirected(self.path.parent, self.path):
+                    raise JournalError("refusing to use a redirected run.lock") from error
                 if self.path.is_dir():
                     marker, raw, owner = _directory_owner(self.path)
                 else:
@@ -340,6 +381,10 @@ class RunLock(AbstractContextManager["RunLock"]):
                 except FileNotFoundError:
                     continue
                 continue
+            if _lock_is_redirected(self.path.parent, self.path):
+                with suppress(OSError):
+                    self.path.rmdir()
+                raise JournalError("refusing to use a redirected run.lock")
             nonce = strict_json_loads(encoded_payload)["nonce"]
             marker = self.path / f"owner-{nonce}.json"
             try:

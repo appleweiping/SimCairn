@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sys
+import threading
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
@@ -8,14 +9,18 @@ from pathlib import Path
 import pytest
 
 from simcairn import __version__
+from simcairn import scheduler as scheduler_module
 from simcairn.adapters import AdapterError
 from simcairn.api import Runner
 from simcairn.cli import main
+from simcairn.coordination import StoreReadLease, StoreWriteLease
 from simcairn.executor import ActivityExecutor, ExecutionError
+from simcairn.journal import RunLock, run_lock_state
 from simcairn.manifest import load_manifest
 from simcairn.model import Activity, ActivityOutcome, canonical_json
 from simcairn.planner import compile_plan
-from simcairn.scheduler import execute_plan
+from simcairn.reference import verify_reference
+from simcairn.scheduler import SchedulerError, execute_plan
 from simcairn.store import ArtifactStore, StoreError
 
 EXAMPLE = Path(__file__).parents[1] / "examples" / "rc_sweep" / "simcairn.toml"
@@ -64,6 +69,30 @@ def test_collect_strictly_rejects_ambiguous_results_json(tmp_path):
         runner.collect(report.run_id)
 
 
+def test_collect_rejects_an_unpublished_aggregate_without_running_the_plan(tmp_path):
+    runner = Runner(tmp_path / "store")
+    plan = compile_plan(load_manifest(EXAMPLE))
+    run_id, _directory = runner.store.create_run(plan)
+
+    with pytest.raises(StoreError, match="aggregate result is unavailable"):
+        runner.collect(run_id)
+
+
+@pytest.mark.parametrize("payload", [{"not": "an array"}, [1]])
+def test_collect_rejects_results_that_are_not_an_array_of_objects(tmp_path, monkeypatch, payload):
+    runner = Runner(tmp_path / "store")
+    plan = compile_plan(load_manifest(EXAMPLE))
+    run_id, _directory = runner.store.create_run(plan)
+    cache = tmp_path / "verified-cache"
+    (cache / "files").mkdir(parents=True)
+    (cache / "files" / "results.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(ArtifactStore, "verify", lambda _store, _activity_id: (True, ""))
+    monkeypatch.setattr(ArtifactStore, "cache_path", lambda _store, _activity_id: cache)
+
+    with pytest.raises(StoreError, match="not an array of objects"):
+        runner.collect(run_id)
+
+
 def test_resume_reuses_verified_completed_artifacts(tmp_path):
     runner = Runner(tmp_path / "store")
     first = runner.run(load_manifest(EXAMPLE))
@@ -72,6 +101,31 @@ def test_resume_reuses_verified_completed_artifacts(tmp_path):
     assert resumed.counts == {"cached": 19}
     status = runner.status(first.run_id)
     assert status["events"] > 20
+
+
+def test_runner_releases_a_run_lock_when_the_store_barrier_exit_fails(tmp_path, monkeypatch):
+    class FailingExitLease:
+        def __init__(self, _root):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc_value, _traceback):
+            raise RuntimeError("injected barrier exit failure")
+
+    runner = Runner(tmp_path / "store")
+    plan = compile_plan(load_manifest(EXAMPLE))
+    monkeypatch.setattr("simcairn.api.StoreReadLease", FailingExitLease)
+
+    with pytest.raises(RuntimeError, match="barrier exit failure"):
+        runner.run(plan)
+    run_id = next(runner.store.run_root.iterdir()).name
+    assert run_lock_state(runner.store.run_directory(run_id)) is None
+
+    with pytest.raises(RuntimeError, match="barrier exit failure"):
+        runner.resume(run_id)
+    assert run_lock_state(runner.store.run_directory(run_id)) is None
 
 
 def test_explain_reports_verified_cache_and_unknown_miss(tmp_path):
@@ -143,6 +197,246 @@ def test_fail_fast_stops_unscheduled_work(tmp_path):
     report = asyncio.run(execute_plan(plan, store, _empty_run(store, plan), executor=executor))
     assert report.status == "failed"
     assert report.counts == {"failed": 1, "skipped": 18}
+
+
+class BlockingExecutor:
+    def __init__(self) -> None:
+        self.started = 0
+        self.cancelled = 0
+
+    async def execute(self, activity: Activity) -> ActivityOutcome:
+        self.started += 1
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        return ActivityOutcome(activity.id, "succeeded", 0.0)
+
+
+def test_scheduler_cancels_children_before_releasing_its_run_lock(tmp_path):
+    plan = replace(compile_plan(load_manifest(EXAMPLE)), jobs=2)
+    store = ArtifactStore(tmp_path / "cancel-store")
+    run_id = _empty_run(store, plan)
+    executor = BlockingExecutor()
+
+    async def cancel_scheduler() -> None:
+        task = asyncio.create_task(execute_plan(plan, store, run_id, executor=executor))
+        while executor.started < 2:
+            await asyncio.sleep(0)
+        assert run_lock_state(store.run_directory(run_id)) == "alive"
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(cancel_scheduler())
+    assert executor.cancelled == 2
+    assert run_lock_state(store.run_directory(run_id)) is None
+
+
+def test_repeated_scheduler_cancellation_cannot_interrupt_child_cleanup(tmp_path):
+    plan = replace(compile_plan(load_manifest(EXAMPLE)), jobs=1)
+    store = ArtifactStore(tmp_path / "repeated-cancel-store")
+    run_id = _empty_run(store, plan)
+    cleaned = False
+
+    async def exercise() -> None:
+        nonlocal cleaned
+        started = asyncio.Event()
+        cleaning = asyncio.Event()
+        finish_cleanup = asyncio.Event()
+
+        class CleanupExecutor:
+            async def execute(self, activity: Activity) -> ActivityOutcome:
+                nonlocal cleaned
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    cleaning.set()
+                    await finish_cleanup.wait()
+                    cleaned = True
+                    raise
+                return ActivityOutcome(activity.id, "succeeded", 0.0)
+
+        scheduler = asyncio.create_task(
+            execute_plan(plan, store, run_id, executor=CleanupExecutor())
+        )
+        await started.wait()
+        scheduler.cancel()
+        await cleaning.wait()
+        scheduler.cancel()
+        await asyncio.sleep(0)
+        assert run_lock_state(store.run_directory(run_id)) == "alive"
+        finish_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await scheduler
+
+    asyncio.run(exercise())
+    assert cleaned is True
+    assert run_lock_state(store.run_directory(run_id)) is None
+
+
+def test_scheduler_releases_an_owned_lock_when_initialization_raises(tmp_path, monkeypatch):
+    plan = compile_plan(load_manifest(EXAMPLE))
+    store = ArtifactStore(tmp_path / "init-failure-store")
+    run_id = _empty_run(store, plan)
+
+    def fail_executor(_store):
+        raise RuntimeError("injected initialization failure")
+
+    monkeypatch.setattr("simcairn.scheduler.ActivityExecutor", fail_executor)
+    with pytest.raises(RuntimeError, match="initialization failure"):
+        asyncio.run(execute_plan(plan, store, run_id))
+    assert run_lock_state(store.run_directory(run_id)) is None
+
+
+def test_scheduler_releases_a_lock_when_the_store_barrier_exit_fails(tmp_path, monkeypatch):
+    class FailingExitLease:
+        def __init__(self, _root):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc_value, _traceback):
+            raise RuntimeError("injected barrier exit failure")
+
+    plan = compile_plan(load_manifest(EXAMPLE))
+    store = ArtifactStore(tmp_path / "store")
+    run_id = _empty_run(store, plan)
+    monkeypatch.setattr(scheduler_module, "StoreReadLease", FailingExitLease)
+
+    with pytest.raises(RuntimeError, match="barrier exit failure"):
+        asyncio.run(execute_plan(plan, store, run_id, executor=RecordingExecutor()))
+    assert run_lock_state(store.run_directory(run_id)) is None
+
+
+def test_cancellation_wins_when_background_lock_acquisition_fails(tmp_path, monkeypatch):
+    store = ArtifactStore(tmp_path / "store")
+    started = threading.Event()
+    release = threading.Event()
+
+    def fail_after_cancellation(_store, _run_id):
+        started.set()
+        assert release.wait(timeout=5)
+        raise SchedulerError("injected acquisition failure")
+
+    monkeypatch.setattr(scheduler_module, "_acquire_run_lock", fail_after_cancellation)
+
+    async def cancel_worker():
+        task = asyncio.create_task(scheduler_module._acquire_run_lock_async(store, "run"))
+        while not started.is_set():
+            await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(cancel_worker())
+
+
+def test_undefined_resource_failure_reaches_an_async_activity_callback(tmp_path):
+    base = compile_plan(load_manifest(EXAMPLE))
+    activity = replace(base.activities[0], resources=(("license-seat", 1),))
+    plan = replace(base, activities=(activity,))
+    store = ArtifactStore(tmp_path / "store")
+    run_id = _empty_run(store, plan)
+    observed = []
+
+    async def observe(outcome):
+        await asyncio.sleep(0)
+        observed.append(outcome)
+
+    report = asyncio.run(
+        execute_plan(
+            plan,
+            store,
+            run_id,
+            executor=RecordingExecutor(),
+            on_activity=observe,
+        )
+    )
+
+    assert report.counts == {"failed": 1}
+    assert "undefined resource 'license-seat'" in report.outcomes[0].message
+    assert observed == [report.outcomes[0]]
+
+
+def test_scheduler_rejects_a_cycle_and_releases_its_lock(tmp_path):
+    base = compile_plan(load_manifest(EXAMPLE))
+    activity = replace(base.activities[0], dependencies=(base.activities[0].id,))
+    plan = replace(base, activities=(activity,))
+    store = ArtifactStore(tmp_path / "store")
+    run_id = _empty_run(store, plan)
+
+    with pytest.raises(SchedulerError, match="cyclic or has an unknown dependency"):
+        asyncio.run(execute_plan(plan, store, run_id, executor=RecordingExecutor()))
+    assert run_lock_state(store.run_directory(run_id)) is None
+
+
+def test_scheduler_rejects_a_supplied_lock_for_another_run(tmp_path):
+    plan = compile_plan(load_manifest(EXAMPLE))
+    store = ArtifactStore(tmp_path / "wrong-lock-store")
+    target = _empty_run(store, plan)
+    _other_id, other_directory = store.create_run(plan)
+    wrong_lock = RunLock(other_directory)
+    wrong_lock.__enter__()
+    try:
+        with pytest.raises(SchedulerError, match="not acquired for this run"):
+            asyncio.run(execute_plan(plan, store, target, run_lock=wrong_lock))
+        assert run_lock_state(other_directory) == "alive"
+    finally:
+        wrong_lock.__exit__(None, None, None)
+
+
+def test_store_coordination_wait_does_not_block_the_async_event_loop(tmp_path):
+    plan = replace(compile_plan(load_manifest(EXAMPLE)), jobs=1)
+    store = ArtifactStore(tmp_path / "responsive-store")
+    run_id = _empty_run(store, plan)
+    writer = StoreWriteLease(store.root)
+    writer.__enter__()
+
+    async def run_while_writer_finishes() -> int:
+        ticks = 0
+        task = asyncio.create_task(execute_plan(plan, store, run_id, executor=RecordingExecutor()))
+        for _ in range(5):
+            await asyncio.sleep(0.02)
+            ticks += 1
+        assert not task.done()
+        writer.__exit__(None, None, None)
+        await task
+        return ticks
+
+    try:
+        assert asyncio.run(run_while_writer_finishes()) == 5
+    finally:
+        writer.__exit__(None, None, None)
+
+
+def test_repeated_cancellation_while_waiting_cannot_abandon_a_run_lock(tmp_path):
+    plan = compile_plan(load_manifest(EXAMPLE))
+    store = ArtifactStore(tmp_path / "cancelled-acquisition-store")
+    run_id = _empty_run(store, plan)
+    writer = StoreWriteLease(store.root)
+    writer.__enter__()
+
+    async def cancel_waiter() -> None:
+        task = asyncio.create_task(execute_plan(plan, store, run_id, executor=RecordingExecutor()))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        writer.__exit__(None, None, None)
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    try:
+        asyncio.run(cancel_waiter())
+    finally:
+        writer.__exit__(None, None, None)
+    assert run_lock_state(store.run_directory(run_id)) is None
 
 
 class SlowAdapter:
@@ -250,9 +544,7 @@ def test_offline_pvt_workflow_emits_strict_regression_bundle(tmp_path):
     assert set(bundle["points"][0]) == {"case", "sample", "metrics"}
     assert bundle["points"][0]["metrics"]["cutoff_hz"]["unit"] == "Hz"
     golden = EXAMPLE.parent.parent / "rc_pvt" / "offline-golden.json"
-    assert json.loads(path.read_text(encoding="utf-8")) == json.loads(
-        golden.read_text(encoding="utf-8")
-    )
+    verify_reference(path, golden, expected_activity_id=aggregate.id)
 
 
 def test_cli_errors_are_status_two_and_cache_miss_is_one(tmp_path, capsys):
@@ -283,6 +575,30 @@ def test_cli_force_unlock_is_audited(tmp_path, capsys):
     assert main(["unlock", run_id, "--store", str(tmp_path / "store"), "--force"]) == 0
     assert json.loads(capsys.readouterr().out)["removed"] is True
     assert (directory / "unlock-audit.jsonl").is_file()
+
+
+def test_cli_unlock_respects_collection_and_reports_contention(tmp_path, capsys, monkeypatch):
+    runner = Runner(tmp_path / "coordinated-unlock")
+    plan = compile_plan(load_manifest(EXAMPLE))
+    run_id, directory = runner.store.create_run(plan)
+    lock = RunLock(directory)
+    lock.__enter__()
+    writer = StoreWriteLease(runner.store.root)
+    writer.__enter__()
+    monkeypatch.setattr(
+        "simcairn.cli.StoreReadLease",
+        lambda root: StoreReadLease(root, timeout_seconds=0),
+    )
+    try:
+        assert main(["unlock", run_id, "--store", str(runner.store.root), "--force"]) == 2
+        assert "collection is still in progress" in capsys.readouterr().err
+        assert run_lock_state(directory) == "alive"
+    finally:
+        writer.__exit__(None, None, None)
+
+    assert main(["unlock", run_id, "--store", str(runner.store.root), "--force"]) == 0
+    assert json.loads(capsys.readouterr().out)["removed"] is True
+    lock.__exit__(None, None, None)
 
 
 def test_subprocess_environment_is_allowlisted(monkeypatch):

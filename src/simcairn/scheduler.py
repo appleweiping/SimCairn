@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
+from simcairn.coordination import StoreReadLease
 from simcairn.executor import ActivityExecutor
 from simcairn.journal import Journal, RunLock
 from simcairn.model import Activity, ActivityOutcome, Plan, RunReport
@@ -15,6 +17,56 @@ class SchedulerError(RuntimeError):
     pass
 
 
+def _acquire_run_lock(store: ArtifactStore, run_id: str) -> tuple[Path, RunLock]:
+    """Acquire a run lock under the store barrier in a worker thread."""
+
+    run_directory: Path | None = None
+    run_lock: RunLock | None = None
+    try:
+        with StoreReadLease(store.root):
+            run_directory = store.run_directory(run_id)
+            run_lock = RunLock(run_directory)
+            run_lock.__enter__()
+    except BaseException:
+        if run_lock is not None:
+            run_lock.__exit__(None, None, None)
+        raise
+    if run_directory is None or run_lock is None:
+        raise SchedulerError("run lock acquisition completed without a lock")
+    return run_directory, run_lock
+
+
+async def _acquire_run_lock_async(store: ArtifactStore, run_id: str) -> tuple[Path, RunLock]:
+    """Keep the loop responsive without abandoning a lock on cancellation."""
+
+    worker = asyncio.create_task(asyncio.to_thread(_acquire_run_lock, store, run_id))
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(worker)
+            break
+        except asyncio.CancelledError:
+            # A second cancellation is possible while the worker is still
+            # acquiring. Keep owning the hand-off until it has either failed
+            # or returned a lock that can be released here.
+            cancelled = True
+        except BaseException:
+            if cancelled:
+                raise asyncio.CancelledError from None
+            raise
+    if cancelled:
+        _run_directory, acquired = result
+        acquired.__exit__(None, None, None)
+        raise asyncio.CancelledError
+    return result
+
+
+async def _cancel_and_wait(tasks: tuple[asyncio.Task[ActivityOutcome], ...]) -> None:
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def execute_plan(
     plan: Plan,
     store: ArtifactStore,
@@ -22,18 +74,33 @@ async def execute_plan(
     *,
     executor: ActivityExecutor | None = None,
     on_activity: Callable[[ActivityOutcome], Awaitable[None] | None] | None = None,
+    run_lock: RunLock | None = None,
 ) -> RunReport:
-    run_directory = store.run_directory(run_id)
-    journal = Journal(run_directory / "events.jsonl")
-    activity_executor = executor or ActivityExecutor(store)
-    activities = plan.activity_map()
-    statuses: dict[str, str] = {}
-    outcomes: dict[str, ActivityOutcome] = {}
-    pending = set(activities)
-    running: dict[asyncio.Task[ActivityOutcome], str] = {}
-    resource_semaphores = {name: asyncio.Semaphore(limit) for name, limit in plan.resource_limits}
-    resource_limits = dict(plan.resource_limits)
-    job_limit = asyncio.Semaphore(plan.jobs)
+    owned_lock: RunLock | None = None
+    if run_lock is None:
+        run_directory, owned_lock = await _acquire_run_lock_async(store, run_id)
+    else:
+        run_directory = store.run_directory(run_id)
+        if not run_lock.acquired or run_lock.path.parent.resolve() != run_directory:
+            raise SchedulerError("supplied run lock is not acquired for this run")
+    try:
+        journal: Journal
+        activity_executor = executor or ActivityExecutor(store)
+        activities = plan.activity_map()
+        statuses: dict[str, str] = {}
+        outcomes: dict[str, ActivityOutcome] = {}
+        pending = set(activities)
+        running: dict[asyncio.Task[ActivityOutcome], str] = {}
+        resource_semaphores = {
+            name: asyncio.Semaphore(limit) for name, limit in plan.resource_limits
+        }
+        resource_limits = dict(plan.resource_limits)
+        job_limit = asyncio.Semaphore(plan.jobs)
+    except BaseException:
+        if owned_lock is not None:
+            owned_lock.__exit__(None, None, None)
+            owned_lock = None
+        raise
 
     async def run_one(activity: Activity) -> ActivityOutcome:
         acquired: list[asyncio.Semaphore] = []
@@ -74,7 +141,9 @@ async def execute_plan(
             if callback_result is not None:
                 await callback_result
 
-    with RunLock(run_directory):
+    try:
+        run_directory = store.run_directory(run_id)
+        journal = Journal(run_directory / "events.jsonl")
         journal.append("run-started", message=plan.id)
         for activity in plan.activities:
             valid, _ = store.verify(activity.id)
@@ -124,6 +193,22 @@ async def execute_plan(
             else "succeeded"
         )
         journal.append("run-finished", message=final_status)
+    finally:
+        cleanup_cancelled = False
+        if running:
+            cleanup = asyncio.create_task(_cancel_and_wait(tuple(running)))
+            while True:
+                try:
+                    await asyncio.shield(cleanup)
+                    break
+                except asyncio.CancelledError:
+                    cleanup_cancelled = True
+        try:
+            if cleanup_cancelled:
+                raise asyncio.CancelledError
+        finally:
+            if owned_lock is not None:
+                owned_lock.__exit__(None, None, None)
 
     ordered = tuple(outcomes[activity.id] for activity in plan.activities)
     return RunReport(run_id, plan.id, final_status, ordered, run_directory)

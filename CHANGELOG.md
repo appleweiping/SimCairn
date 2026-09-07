@@ -19,6 +19,14 @@ All notable changes are documented here. Versions follow Semantic Versioning.
   needs to know whether a run is busy must be able to ask without changing the answer.
 - `simcairn.maintenance` as a Python API: `survey`, `verify_all`, `plan_collection`,
   `apply_collection`, and `directory_bytes`.
+- Current-reference entrypoints that bind a fresh bundle to the currently imported source and
+  fixed current plan while preserving the identities of frozen 0.2.0 observations.
+
+### Changed
+
+- New run IDs use a 128-bit generation suffix instead of recycling the lowest numeric suffix.
+  Existing numeric run IDs remain readable. This prevents an old collection plan from naming a
+  different run created later and removes the concurrent same-plan allocation race.
 
 ### Safety
 
@@ -28,12 +36,21 @@ All notable changes are documented here. Versions follow Semantic Versioning.
   not sufficient on its own: its activity list comes back empty, which reads exactly like
   "refers to nothing", and acting on that would orphan and delete the whole cache.
 - Unreadable cache entries are retained as evidence by default rather than swept up.
-- A collection plan is re-checked as it is applied, so a run that acquired a lock after the
-  plan was made is skipped rather than removed.
+- A collection plan is re-checked as it is applied: a run that acquired a lock is skipped,
+  surviving plans are reloaded before cache deletion, and newly protected work is retained.
+- Run registration and lock acquisition use a cross-platform reader/writer barrier with
+  collection. Abandoned readers are reaped only when ownership is provably stale or their
+  unpublished directory is empty; uncertain ownership fails closed.
+- Every deletion target and store-area root is validated before mutation and again under the
+  writer lease. Path traversal, symbolic-link and junction redirection are refused.
+- Scheduler cancellation drains every child activity before releasing the run lock, including
+  cancellation while lock acquisition is waiting in a worker thread.
 - Work sandboxes are removed only when no run holds a live lock, since a sandbox records no
   owner.
-- Directory sizing counts symbolic links as links rather than following them, so a link out of
-  the store can neither inflate a total nor be walked into.
+- Directory sizing ignores symbolic links rather than following them, so a link out of the
+  store can neither inflate a total nor be walked into.
+- Current-process start markers are cached by PID, avoiding a subprocess probe for every short
+  store lease on Windows without caching the liveness of arbitrary lock owners.
 
 ## [0.2.0] - 2026-08-31
 

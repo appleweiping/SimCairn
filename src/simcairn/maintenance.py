@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from simcairn.coordination import StoreCoordinationError, StoreWriteLease
 from simcairn.journal import run_lock_state
 from simcairn.store import ArtifactStore, StoreError
 
@@ -50,8 +51,8 @@ DEFAULT_KEEP_RUNS = 10
 def directory_bytes(path: Path) -> int:
     """Total size of the regular files under `path`.
 
-    Symbolic links are counted as links rather than followed, so a link out of
-    the store cannot inflate the total or, worse, be walked into.
+    Symbolic links are ignored rather than followed, so a link out of the
+    store cannot inflate the total or, worse, be walked into.
     """
 
     total = 0
@@ -235,7 +236,13 @@ def _cache_entries(store: ArtifactStore) -> tuple[CacheEntry, ...]:
     for path in sorted(store.cache_root.iterdir()):
         if not path.is_dir():
             continue
-        readable, reason = store.verify(path.name)
+        if path.is_symlink():
+            readable, reason = False, "cache entry is a symbolic link"
+        else:
+            try:
+                readable, reason = store.verify(path.name)
+            except StoreError as error:
+                readable, reason = False, str(error)
         try:
             modified = path.stat().st_mtime
         except OSError:
@@ -260,12 +267,16 @@ def _run_summaries(store: ArtifactStore) -> tuple[RunSummary, ...]:
         readable = True
         reason = ""
         activity_ids: frozenset[str] = frozenset()
-        try:
-            plan = store.load_plan(path.name)
-            activity_ids = frozenset(activity.id for activity in plan.activities)
-        except StoreError as error:
+        if path.is_symlink():
             readable = False
-            reason = str(error)
+            reason = "run directory is a symbolic link"
+        else:
+            try:
+                plan = store.load_plan(path.name)
+                activity_ids = frozenset(activity.id for activity in plan.activities)
+            except StoreError as error:
+                readable = False
+                reason = str(error)
         try:
             modified = path.stat().st_mtime
         except OSError:
@@ -275,7 +286,7 @@ def _run_summaries(store: ArtifactStore) -> tuple[RunSummary, ...]:
                 run_id=path.name,
                 size=directory_bytes(path),
                 modified=modified,
-                lock_state=run_lock_state(path),
+                lock_state="unknown" if path.is_symlink() else run_lock_state(path),
                 activity_ids=activity_ids,
                 readable=readable,
                 reason=reason,
@@ -423,12 +434,88 @@ def plan_collection(
     )
 
 
-def apply_collection(store: ArtifactStore, plan: CollectionPlan) -> CollectionReport:
-    """Remove exactly what the plan names, and nothing it does not.
+def _safe_target(root: Path, name: object, kind: str) -> tuple[Path | None, str | None]:
+    """Resolve one exact direct child without accepting platform-specific escapes."""
 
-    The plan is re-checked against the store as it is applied: a run that
-    acquired a lock since the plan was made is skipped rather than removed,
-    because the plan may be older than the situation.
+    if (
+        not isinstance(name, str)
+        or not name
+        or name in {".", ".."}
+        or "/" in name
+        or "\\" in name
+        or ":" in name
+        or Path(name).name != name
+        or Path(name).anchor
+    ):
+        return None, f"unsafe {kind} name"
+    target = root / name
+    try:
+        expected = root.resolve() / name
+        resolved = target.resolve()
+    except (OSError, RuntimeError) as error:
+        return None, f"cannot resolve {kind}: {error}"
+    if target.is_symlink() or resolved != expected:
+        return None, f"refusing redirected {kind}"
+    return target, None
+
+
+def _validate_collection_targets(
+    store: ArtifactStore, plan: CollectionPlan
+) -> tuple[tuple[str, str], ...]:
+    failures: list[tuple[str, str]] = []
+    groups = (
+        (store.run_root, "runs", plan.runs, "run"),
+        (store.cache_root, "cache", plan.entries, "cache-entry"),
+        (store.work_root, "work", plan.sandboxes, "sandbox"),
+    )
+    for root, expected_name, names, kind in groups:
+        try:
+            redirected = (
+                root.is_symlink()
+                or not root.is_dir()
+                or root.resolve() != store.root / expected_name
+            )
+        except (OSError, RuntimeError):
+            redirected = True
+        if redirected:
+            failures.append((str(root), f"refusing redirected {expected_name} store root"))
+            continue
+        for name in names:
+            _target, reason = _safe_target(root, name, kind)
+            if reason is not None:
+                failures.append((str(name), reason))
+    return tuple(failures)
+
+
+def apply_collection(store: ArtifactStore, plan: CollectionPlan) -> CollectionReport:
+    """Safely apply a previously reported collection plan.
+
+    Every target is validated before the first mutation. The exclusive store
+    lease then freezes run registration and run-lock transitions while the
+    current store is surveyed again. Existing simulations keep running; their
+    visible run locks protect their run, reachable entries, and work area.
+    """
+
+    failures = _validate_collection_targets(store, plan)
+    if failures:
+        return CollectionReport((), (), (), 0, failures)
+    try:
+        with StoreWriteLease(store.root):
+            failures = _validate_collection_targets(store, plan)
+            if failures:
+                return CollectionReport((), (), (), 0, failures)
+            return _apply_collection_locked(store, plan)
+    except StoreCoordinationError as error:
+        return CollectionReport((), (), (), 0, ((str(store.root), str(error)),))
+
+
+def _apply_collection_locked(store: ArtifactStore, plan: CollectionPlan) -> CollectionReport:
+    """Remove exact, prevalidated targets while the writer lease is held.
+
+    The plan is re-checked against the store as it is applied. A run that
+    acquired a lock is skipped; every surviving plan is reloaded before cache
+    entries are removed; and work is retained if a live lock appeared. The
+    plan may be older than the situation, so current reachability wins.
     """
 
     removed_runs: list[str] = []
@@ -453,13 +540,37 @@ def apply_collection(store: ArtifactStore, plan: CollectionPlan) -> CollectionRe
         removed_runs.append(run_id)
         freed += size
 
+    # The plan is only a snapshot. Runs may have appeared, acquired a lock, or
+    # failed to be removed since it was made. Re-read the surviving plans
+    # before deleting a cache entry so an entry that is now reachable is kept.
+    # If any surviving plan cannot be read, no entry can be classified safely.
+    remaining_runs = _run_summaries(store)
+    unreadable_runs = tuple(run for run in remaining_runs if not run.readable)
+    reachable = frozenset(activity_id for run in remaining_runs for activity_id in run.activity_ids)
+
     for activity_id in plan.entries:
         try:
             directory = store.cache_path(activity_id)
-        except StoreError as error:
-            failures.append((activity_id, str(error)))
-            continue
+        except StoreError:
+            # A crashed atomic publish may leave a direct `.publish-*`
+            # directory that is intentionally not a valid activity id. It is
+            # still an exact child of the cache and can be removed when an
+            # include-unreadable plan explicitly names it.
+            directory = store.cache_root / activity_id
         if not directory.is_dir():
+            continue
+        if unreadable_runs:
+            failures.append(
+                (
+                    str(directory),
+                    "cache entry kept because a remaining run has an unreadable plan",
+                )
+            )
+            continue
+        if activity_id in reachable:
+            failures.append(
+                (str(directory), "cache entry became referenced after the plan was made")
+            )
             continue
         size = directory_bytes(directory)
         try:
@@ -470,10 +581,15 @@ def apply_collection(store: ArtifactStore, plan: CollectionPlan) -> CollectionRe
         removed_entries.append(activity_id)
         freed += size
 
+    protected_runs = tuple(run for run in _run_summaries(store) if run.protected)
     for name in plan.sandboxes:
         directory = store.work_root / name
-        if Path(name).name != name or not directory.is_dir():
-            failures.append((name, "unsafe or missing sandbox name"))
+        if not directory.is_dir():
+            continue
+        if protected_runs:
+            failures.append(
+                (str(directory), "work sandbox kept because a run now holds a live lock")
+            )
             continue
         size = directory_bytes(directory)
         try:
