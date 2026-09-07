@@ -17,3 +17,12 @@ aggregate activity compiled from its current fixed run manifest. Numeric
 points, units, and case identities are then compared with the historical
 bundle; historical producer and activity identities are verified against their
 sidecars rather than falsely replaced with current values.
+
+The `Replay real references` Actions workflow is deliberately manual. It
+builds the selected commit into a clean wheel and replays RC, SKY130A, and
+GF180MCU on Ubuntu 24.04 with ngspice 42. PDK jobs acquire only content-pinned
+Ciel assets, scan every tar member, and materialize only the small regular-file
+allowlist in `ciel-assets.json`. Reports are temporary workflow artifacts; the
+workflow has no write permission and no path points at the checked-in results.
+See [`docs/real-reference-replay.md`](../docs/real-reference-replay.md) for the
+trust anchors, evidence boundary, and manual procedure.
