@@ -1,5 +1,6 @@
 import asyncio
 import json
+import subprocess
 import sys
 import threading
 from dataclasses import replace
@@ -335,6 +336,86 @@ def test_cancellation_wins_when_background_lock_acquisition_fails(tmp_path, monk
             await task
 
     asyncio.run(cancel_worker())
+
+
+def test_event_loop_shutdown_drains_lock_acquisition_worker():
+    script = """
+import asyncio
+import threading
+from pathlib import Path
+
+from simcairn import scheduler
+
+started = threading.Event()
+finish = threading.Event()
+released = []
+
+
+class AcquiredLock:
+    def __exit__(self, _exc_type, _exc_value, _traceback):
+        released.append(True)
+
+
+def acquire_after_shutdown_starts(_store, _run_id):
+    started.set()
+    if not finish.wait(timeout=5):
+        raise AssertionError("acquisition worker was not released")
+    return Path("run"), AcquiredLock()
+
+
+async def leave_acquisition_pending():
+    scheduler._acquire_run_lock = acquire_after_shutdown_starts
+    asyncio.create_task(scheduler._acquire_run_lock_async(object(), "run"))
+    while not started.is_set():
+        await asyncio.sleep(0)
+    threading.Timer(0.05, finish.set).start()
+
+
+asyncio.run(leave_acquisition_pending())
+if released != [True]:
+    raise AssertionError(f"acquired lock was not released exactly once: {released!r}")
+"""
+
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("event-loop shutdown abandoned the acquisition worker")
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_cancelled_acquisition_worker_is_not_reawaited(tmp_path, monkeypatch):
+    store = ArtifactStore(tmp_path / "store")
+    release = threading.Event()
+    shield_calls = 0
+    original_shield = asyncio.shield
+
+    def cancel_acquisition(_store, _run_id):
+        assert release.wait(timeout=2)
+        raise asyncio.CancelledError
+
+    def bounded_shield(awaitable):
+        nonlocal shield_calls
+        shield_calls += 1
+        if shield_calls > 1:
+            raise AssertionError("a completed acquisition worker was awaited again")
+        release.set()
+        return original_shield(awaitable)
+
+    monkeypatch.setattr(scheduler_module, "_acquire_run_lock", cancel_acquisition)
+    monkeypatch.setattr(scheduler_module.asyncio, "shield", bounded_shield)
+
+    async def observe_worker_cancellation():
+        with pytest.raises(asyncio.CancelledError):
+            await scheduler_module._acquire_run_lock_async(store, "run")
+
+    asyncio.run(observe_worker_cancellation())
+    assert shield_calls == 1
 
 
 def test_undefined_resource_failure_reaches_an_async_activity_callback(tmp_path):

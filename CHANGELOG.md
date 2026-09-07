@@ -43,8 +43,9 @@ All notable changes are documented here. Versions follow Semantic Versioning.
   unpublished directory is empty; uncertain ownership fails closed.
 - Every deletion target and store-area root is validated before mutation and again under the
   writer lease. Path traversal, symbolic-link and junction redirection are refused.
-- Scheduler cancellation drains every child activity before releasing the run lock, including
-  cancellation while lock acquisition is waiting in a worker thread.
+- Scheduler cancellation drains every child activity before releasing the run lock. Lock
+  acquisition remains owned through repeated cancellation and event-loop shutdown, so a worker
+  result is either propagated or its acquired lock is released.
 - Work sandboxes are removed only when no run holds a live lock, since a sandbox records no
   owner.
 - Directory sizing ignores symbolic links rather than following them, so a link out of the

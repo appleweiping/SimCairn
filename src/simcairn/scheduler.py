@@ -39,12 +39,15 @@ def _acquire_run_lock(store: ArtifactStore, run_id: str) -> tuple[Path, RunLock]
 async def _acquire_run_lock_async(store: ArtifactStore, run_id: str) -> tuple[Path, RunLock]:
     """Keep the loop responsive without abandoning a lock on cancellation."""
 
-    worker = asyncio.create_task(asyncio.to_thread(_acquire_run_lock, store, run_id))
+    # Keep the executor Future out of ``asyncio.all_tasks()``. During
+    # ``asyncio.run()`` shutdown, cancelling an intermediate Task around
+    # ``to_thread()`` would discard the thread's eventual lock result before
+    # this coroutine can release it.
+    worker = asyncio.get_running_loop().run_in_executor(None, _acquire_run_lock, store, run_id)
     cancelled = False
-    while True:
+    while not worker.done():
         try:
-            result = await asyncio.shield(worker)
-            break
+            await asyncio.shield(worker)
         except asyncio.CancelledError:
             # A second cancellation is possible while the worker is still
             # acquiring. Keep owning the hand-off until it has either failed
@@ -54,6 +57,12 @@ async def _acquire_run_lock_async(store: ArtifactStore, run_id: str) -> tuple[Pa
             if cancelled:
                 raise asyncio.CancelledError from None
             raise
+    try:
+        result = worker.result()
+    except BaseException:
+        if cancelled:
+            raise asyncio.CancelledError from None
+        raise
     if cancelled:
         _run_directory, acquired = result
         acquired.__exit__(None, None, None)
