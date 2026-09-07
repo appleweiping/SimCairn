@@ -78,4 +78,4 @@ jobs:
           uv run --frozen simcairn run examples/rc_pvt/ngspice.toml --store .ngspice-reference-store
           bundle="$(find .ngspice-reference-store/cache -path '*/files/regression-bundle.json' -print -quit)"
           test -n "$bundle"
-          uv run --frozen python benchmarks/verify_reference.py "$bundle" benchmarks/results/ngspice-42-rc-pvt.json
+          uv run --frozen python benchmarks/verify_current_reference.py "$bundle" benchmarks/results/ngspice-42-rc-pvt.json

@@ -87,7 +87,7 @@ jobs:
           RELEASE_EVENT: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          python - <<'PY'
+          uv run --frozen python - <<'PY'
           import os
           import tomllib
           from pathlib import Path
@@ -110,12 +110,14 @@ jobs:
       - name: Validate distribution metadata and shape
         run: |
           uv run --frozen python -m twine check --strict dist/*
-          python - <<'PY'
+          uv run --frozen python - <<'PY'
           import tarfile
           import zipfile
           import hashlib
           import json
           from pathlib import Path
+
+          from simcairn.provenance import current_producer_identity
 
           wheels = tuple(Path("dist").glob("*.whl"))
           sdists = tuple(Path("dist").glob("*.tar.gz"))
@@ -132,8 +134,11 @@ jobs:
               "benchmarks/results/ngspice-42-rc-pvt.json",
               "benchmarks/results/ngspice-42-sky130-pvt.json",
               "benchmarks/validate_bundle.py",
+              "benchmarks/validate_current_gf180.py",
+              "benchmarks/validate_current_sky130.py",
               "benchmarks/validate_gf180.py",
               "benchmarks/validate_sky130.py",
+              "benchmarks/verify_current_reference.py",
               "benchmarks/verify_reference.py",
               "docs/validation.md",
               "examples/rc_pvt/offline-golden.json",
@@ -155,30 +160,6 @@ jobs:
           required_wheel = {"simcairn/_version.py", "simcairn/py.typed"}
           if missing := required_wheel - wheel_names:
               raise SystemExit(f"wheel is missing: {sorted(missing)}")
-          manifests = [
-              json.loads(Path(path).read_text(encoding="utf-8"))
-              for path in (
-                  "benchmarks/manifest.json",
-                  "benchmarks/gf180-manifest.json",
-                  "benchmarks/sky130-manifest.json",
-              )
-          ]
-          identities = [manifest["producer_identity"] for manifest in manifests]
-          if any(identity != identities[0] for identity in identities[1:]):
-              raise SystemExit("benchmark manifests disagree on producer identity")
-          identity = identities[0]
-          distributions = [manifest["producer_distribution"] for manifest in manifests]
-          if any(distribution != distributions[0] for distribution in distributions[1:]):
-              raise SystemExit("benchmark manifests disagree on validation distribution")
-          validation_distribution = distributions[0]
-          if validation_distribution != {
-              "filename": f"simcairn-{identity['version']}-py3-none-any.whl",
-              "sha256": validation_distribution.get("sha256"),
-          }:
-              raise SystemExit("validation distribution fields are invalid")
-          digest = validation_distribution["sha256"]
-          if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
-              raise SystemExit("validation distribution SHA-256 is invalid")
           logical_tree = {
               "algorithm": "simcairn-python-source-tree/1",
               "files": files,
@@ -191,10 +172,15 @@ jobs:
               "validation_implementation_sha256": files["reference.py"],
               "adapter_implementation_sha256": files["adapters.py"],
           }
+          identity = current_producer_identity().as_dict()
+          if identity["distribution"] != "simcairn":
+              raise SystemExit("source producer distribution is invalid")
+          if identity["package_tree_algorithm"] != logical_tree["algorithm"]:
+              raise SystemExit("source producer package-tree algorithm is invalid")
           for field, actual in expected.items():
               if identity[field] != actual:
                   raise SystemExit(
-                      f"release wheel {field} does not match benchmark producer identity"
+                      f"release wheel {field} does not match the checked-out source identity"
                   )
           PY
       - name: Install wheel and smoke-import package
@@ -207,10 +193,14 @@ jobs:
           import sys
 
           import simcairn
+          from simcairn.provenance import current_producer_identity
 
           installed = importlib.metadata.version("simcairn")
           if simcairn.__version__ != installed:
               raise SystemExit("runtime and distribution versions differ")
+          identity = current_producer_identity()
+          if identity.distribution != "simcairn" or identity.version != installed:
+              raise SystemExit("installed producer identity does not match the distribution")
           output = subprocess.check_output(
               [sys.executable, "-I", "-m", "simcairn", "--version"], text=True
           ).strip()

@@ -2,9 +2,11 @@ import json
 import os
 import socket
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
+import simcairn.journal as journal
 from simcairn.fingerprints import fingerprint, sha256_file
 from simcairn.journal import (
     Journal,
@@ -13,6 +15,7 @@ from simcairn.journal import (
     clear_run_lock,
     latest_activity_states,
     replay,
+    run_lock_state,
 )
 from simcairn.model import Activity, InputDigest, Plan, SweepPoint, canonical_json
 from simcairn.provenance import current_producer_identity
@@ -147,15 +150,29 @@ def test_artifact_paths_cannot_escape_sandbox(tmp_path, artifact):
         store.publish(_activity(artifacts=(artifact,)), sandbox)
 
 
-def test_run_ids_increment_and_saved_plan_round_trips(tmp_path):
+def test_run_ids_are_unique_generations_and_saved_plan_round_trips(tmp_path):
     store = ArtifactStore(tmp_path / "store")
     plan = _plan()
     first_id, first_directory = store.create_run(plan)
     second_id, _ = store.create_run(plan)
-    assert first_id.endswith("-0001")
-    assert second_id.endswith("-0002")
+    assert first_id.startswith(f"{plan.id[:12]}-")
+    assert second_id.startswith(f"{plan.id[:12]}-")
+    assert len(first_id) == len(plan.id[:12]) + 1 + 32
+    assert first_id != second_id
     assert store.load_plan(first_id) == plan
     assert store.run_directory(first_id) == first_directory
+
+
+def test_legacy_numeric_run_ids_remain_readable(tmp_path):
+    store = ArtifactStore(tmp_path / "legacy-store")
+    plan = _plan()
+    run_id = f"{plan.id[:12]}-0001"
+    directory = store.run_root / run_id
+    directory.mkdir()
+    (directory / "plan.json").write_text(canonical_json(plan.as_dict()), encoding="utf-8")
+
+    assert store.load_plan(run_id) == plan
+    assert store.run_directory(run_id) == directory
 
 
 def test_invalid_run_ids_and_saved_plans_are_rejected(tmp_path):
@@ -340,6 +357,174 @@ def test_run_lock_payload_has_nonce_and_process_start_marker(tmp_path):
         assert isinstance(owner["process_start"], str)
 
 
+class _FakeWindowsFunction:
+    def __init__(self, callback):
+        self.callback = callback
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, *args):
+        return self.callback(*args)
+
+
+def test_windows_process_probe_uses_creation_time_without_a_shell(monkeypatch):
+    closed = []
+
+    def get_process_times(handle, creation, exit_time, kernel_time, user_time):
+        assert handle == 17
+        creation._obj.dwHighDateTime = 1
+        creation._obj.dwLowDateTime = 2
+        assert all(
+            pointer._obj.dwHighDateTime == 0 for pointer in (exit_time, kernel_time, user_time)
+        )
+        return True
+
+    def mark_active(_handle, exit_code):
+        exit_code._obj.value = 259
+        return True
+
+    def open_process(access, inherit, pid):
+        assert access == 0x1000
+        assert inherit is False
+        assert pid == 123
+        return 17
+
+    kernel32 = SimpleNamespace(
+        OpenProcess=_FakeWindowsFunction(open_process),
+        GetExitCodeProcess=_FakeWindowsFunction(mark_active),
+        GetProcessTimes=_FakeWindowsFunction(get_process_times),
+        CloseHandle=_FakeWindowsFunction(lambda handle: closed.append(handle) or True),
+    )
+    monkeypatch.setattr(journal.ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
+    monkeypatch.setattr(journal.ctypes, "get_last_error", lambda: 0, raising=False)
+
+    ticks = (1 << 32) | 2
+    assert journal._probe_windows_process(123) == (
+        "alive",
+        f"win32-start:{ticks + 504_911_232_000_000_000}",
+    )
+    assert closed == [17]
+
+
+def test_generic_process_probe_routes_windows_without_spawning_a_shell(monkeypatch):
+    monkeypatch.setattr(journal.sys, "platform", "win32")
+    monkeypatch.setattr(journal, "_probe_windows_process", lambda pid: ("alive", f"native:{pid}"))
+    monkeypatch.setattr(
+        journal.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("must not spawn a child process"),
+    )
+    assert journal._probe_process(123) == ("alive", "native:123")
+
+
+def test_windows_process_probe_fails_closed_when_the_api_is_unavailable(monkeypatch):
+    monkeypatch.delattr(journal.ctypes, "WinDLL", raising=False)
+    assert journal._probe_windows_process(123) == ("unknown", None)
+
+    monkeypatch.setattr(
+        journal.ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: pytest.fail("must not load without get_last_error"),
+        raising=False,
+    )
+    monkeypatch.delattr(journal.ctypes, "get_last_error", raising=False)
+    assert journal._probe_windows_process(123) == ("unknown", None)
+
+    def fail_loader(*_args, **_kwargs):
+        raise OSError("injected API load failure")
+
+    monkeypatch.setattr(journal.ctypes, "WinDLL", fail_loader, raising=False)
+    monkeypatch.setattr(journal.ctypes, "get_last_error", lambda: 0, raising=False)
+    assert journal._probe_windows_process(123) == ("unknown", None)
+
+
+@pytest.mark.parametrize("last_error, expected", [(87, "dead"), (5, "unknown")])
+def test_windows_process_probe_distinguishes_missing_from_uninspectable(
+    monkeypatch, last_error, expected
+):
+    kernel32 = SimpleNamespace(
+        OpenProcess=_FakeWindowsFunction(lambda _access, _inherit, _pid: 0),
+        GetExitCodeProcess=_FakeWindowsFunction(
+            lambda *_args: pytest.fail("must not read an exit code")
+        ),
+        GetProcessTimes=_FakeWindowsFunction(lambda *_args: pytest.fail("must not read times")),
+        CloseHandle=_FakeWindowsFunction(
+            lambda *_args: pytest.fail("must not close a null handle")
+        ),
+    )
+    monkeypatch.setattr(journal.ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
+    monkeypatch.setattr(journal.ctypes, "get_last_error", lambda: last_error, raising=False)
+
+    assert journal._probe_windows_process(123) == (expected, None)
+
+
+@pytest.mark.parametrize("pid", [0, -1])
+def test_windows_process_probe_rejects_nonpositive_values_as_dead(monkeypatch, pid):
+    monkeypatch.setattr(
+        journal.ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: pytest.fail("must not load the Windows API"),
+        raising=False,
+    )
+    assert journal._probe_windows_process(pid) == ("dead", None)
+
+
+def test_windows_process_probe_rejects_values_above_a_dword_as_unknown(monkeypatch):
+    monkeypatch.setattr(
+        journal.ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: pytest.fail("must not load the Windows API"),
+        raising=False,
+    )
+    assert journal._probe_windows_process(2**32) == ("unknown", None)
+
+
+@pytest.mark.parametrize("exit_query, exit_code", [(False, 0), (True, 1), (True, 259)])
+def test_windows_process_probe_closes_handle_on_terminal_or_unknown_state(
+    monkeypatch, exit_query, exit_code
+):
+    closed = []
+
+    def get_exit_code(_handle, pointer):
+        pointer._obj.value = exit_code
+        return exit_query
+
+    kernel32 = SimpleNamespace(
+        OpenProcess=_FakeWindowsFunction(lambda _access, _inherit, _pid: 19),
+        GetExitCodeProcess=_FakeWindowsFunction(get_exit_code),
+        GetProcessTimes=_FakeWindowsFunction(lambda *_args: False),
+        CloseHandle=_FakeWindowsFunction(lambda handle: closed.append(handle) or True),
+    )
+    monkeypatch.setattr(journal.ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
+    monkeypatch.setattr(journal.ctypes, "get_last_error", lambda: 0, raising=False)
+
+    expected = "dead" if exit_query and exit_code != 259 else "unknown"
+    assert journal._probe_windows_process(123) == (expected, None)
+    assert closed == [19]
+
+
+def test_run_locks_probe_the_current_process_start_only_once(tmp_path, monkeypatch):
+    run = tmp_path / "run"
+    run.mkdir()
+    calls = 0
+
+    def probe(_pid):
+        nonlocal calls
+        calls += 1
+        return "alive", "cached-start"
+
+    monkeypatch.setattr(journal, "_probe_process", probe)
+    journal._probe_current_process.cache_clear()
+    try:
+        with RunLock(run):
+            pass
+        with RunLock(run):
+            pass
+        assert calls == 1
+    finally:
+        journal._probe_current_process.cache_clear()
+
+
 def test_old_owner_does_not_remove_successor_lock_after_forced_unlock(tmp_path):
     run = tmp_path / "run"
     run.mkdir()
@@ -382,6 +567,9 @@ def test_run_lock_recovers_dead_owner_and_pid_reuse(tmp_path, monkeypatch, probe
         "simcairn.journal._probe_process",
         lambda pid: ("alive", "current-start") if pid == os.getpid() else probe,
     )
+    monkeypatch.setattr(
+        "simcairn.journal._probe_current_process", lambda _pid: ("alive", "current-start")
+    )
     with RunLock(run):
         replacement = json.loads(next(lock.iterdir()).read_text(encoding="utf-8"))
         assert replacement["process_start"] == "current-start"
@@ -408,6 +596,9 @@ def test_run_lock_recovers_stale_directory_protocol_owner(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "simcairn.journal._probe_process",
         lambda pid: ("alive", "current-start") if pid == os.getpid() else ("dead", None),
+    )
+    monkeypatch.setattr(
+        "simcairn.journal._probe_current_process", lambda _pid: ("alive", "current-start")
     )
     with RunLock(run):
         replacement = json.loads(next(lock.iterdir()).read_text(encoding="utf-8"))
@@ -589,8 +780,77 @@ def test_materialize_explain_and_run_directory_report_missing_data(tmp_path):
         store.run_directory("missing-0001")
 
 
-def test_non_numeric_run_directory_suffix_is_ignored(tmp_path):
+def test_run_generation_does_not_depend_on_existing_directory_names(tmp_path, monkeypatch):
     store = ArtifactStore(tmp_path / "store")
     plan = _plan()
     (store.run_root / f"{plan.id[:12]}-notes").mkdir()
-    assert store.new_run_id(plan.id).endswith("-0001")
+    monkeypatch.setattr("simcairn.store.secrets.token_hex", lambda _size: "a" * 32)
+    assert store.new_run_id(plan.id) == f"{plan.id[:12]}-{'a' * 32}"
+
+
+def test_run_creation_retries_an_atomic_name_collision(tmp_path, monkeypatch):
+    store = ArtifactStore(tmp_path / "store")
+    plan = _plan()
+    values = iter(("a" * 32, "b" * 32))
+    monkeypatch.setattr("simcairn.store.secrets.token_hex", lambda _size: next(values))
+    (store.run_root / f"{plan.id[:12]}-{'a' * 32}").mkdir()
+
+    run_id, _directory = store.create_run(plan)
+
+    assert run_id == f"{plan.id[:12]}-{'b' * 32}"
+
+
+def test_store_rejects_a_redirected_area_root(tmp_path):
+    root = tmp_path / "redirected-store"
+    outside = tmp_path / "outside-cache"
+    root.mkdir()
+    outside.mkdir()
+    sentinel = outside / "sentinel"
+    sentinel.write_text("keep", encoding="utf-8")
+    try:
+        (root / "cache").symlink_to(outside, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks are unavailable: {error}")
+
+    with pytest.raises(StoreError, match="redirected or invalid"):
+        ArtifactStore(root)
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_store_rejects_a_redirected_run_directory(tmp_path):
+    store = ArtifactStore(tmp_path / "store")
+    outside = tmp_path / "outside-run"
+    outside.mkdir()
+    sentinel = outside / "sentinel"
+    sentinel.write_text("keep", encoding="utf-8")
+    linked_run = store.run_root / "linked-run"
+    try:
+        linked_run.symlink_to(outside, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks are unavailable: {error}")
+
+    with pytest.raises(StoreError, match="unknown run id"):
+        store.run_directory(linked_run.name)
+    with pytest.raises(StoreError, match="cannot load run"):
+        store.load_plan(linked_run.name)
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_run_lock_refuses_a_redirected_lock_directory(tmp_path):
+    run = tmp_path / "run"
+    outside = tmp_path / "outside-lock"
+    run.mkdir()
+    outside.mkdir()
+    sentinel = outside / "sentinel"
+    sentinel.write_text("keep", encoding="utf-8")
+    try:
+        (run / "run.lock").symlink_to(outside, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks are unavailable: {error}")
+
+    assert run_lock_state(run) == "unknown"
+    with pytest.raises(JournalError, match="redirected"):
+        clear_run_lock(run, force=True)
+    with pytest.raises(JournalError, match="redirected"):
+        RunLock(run).__enter__()
+    assert sentinel.read_text(encoding="utf-8") == "keep"

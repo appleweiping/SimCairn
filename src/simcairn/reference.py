@@ -7,7 +7,11 @@ import math
 from pathlib import Path
 from typing import Any, Never
 
-from simcairn.provenance import ProducerIdentity, ProducerIdentityError
+from simcairn.provenance import (
+    ProducerIdentity,
+    ProducerIdentityError,
+    current_producer_identity,
+)
 
 _MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 _MAX_JSON_DEPTH = 64
@@ -132,8 +136,26 @@ def _points(bundle: dict[str, Any], expected_points: int) -> dict[str, dict[str,
     return result
 
 
-def verify_reference(actual_path: Path, reference_path: Path, *, expected_points: int = 32) -> None:
-    """Validate and compare two producer-bound ngspice regression bundles."""
+def verify_reference(
+    actual_path: Path,
+    reference_path: Path,
+    *,
+    expected_points: int = 32,
+    expected_activity_id: str | None = None,
+) -> None:
+    """Compare a current-producer bundle with a frozen numeric reference.
+
+    The reference's producer identity is immutable provenance: it says which
+    implementation recorded those measurements. A fresh run is required to
+    identify the implementation imported by this process, but is not required
+    to have the same source hash or content-addressed activity id as an older
+    reference. Requiring that equality would make every legitimate source or
+    version change impossible to validate against the numeric baseline.
+
+    Callers that compile a fixed plan should pass its aggregate activity id.
+    This binds the fresh bundle to the exact current plan while leaving the
+    historical reference bound to its own sidecar manifest.
+    """
 
     if isinstance(expected_points, bool) or not isinstance(expected_points, int):
         raise ValueError("expected_points must be an integer")
@@ -142,13 +164,17 @@ def verify_reference(actual_path: Path, reference_path: Path, *, expected_points
 
     actual_bundle = _load(actual_path)
     reference_bundle = _load(reference_path)
-    if actual_bundle["run"]["producer_identity"] != reference_bundle["run"]["producer_identity"]:
-        raise ValueError("producer implementation identity differs from the reference")
-    if (
-        actual_bundle["run"]["aggregate_activity_id"]
-        != reference_bundle["run"]["aggregate_activity_id"]
-    ):
-        raise ValueError("aggregate activity identity differs from the reference")
+    if actual_bundle["run"]["producer_identity"] != current_producer_identity().as_dict():
+        raise ValueError("actual producer identity differs from the imported implementation")
+    if expected_activity_id is not None:
+        if (
+            not isinstance(expected_activity_id, str)
+            or len(expected_activity_id) != 64
+            or any(character not in "0123456789abcdef" for character in expected_activity_id)
+        ):
+            raise ValueError("expected activity id must be a lowercase SHA-256")
+        if actual_bundle["run"]["aggregate_activity_id"] != expected_activity_id:
+            raise ValueError("actual aggregate activity identity differs from the current plan")
     actual_points = _points(actual_bundle, expected_points)
     reference_points = _points(reference_bundle, expected_points)
     if set(actual_points) != set(reference_points):

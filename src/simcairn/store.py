@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import tempfile
 from pathlib import Path
@@ -17,6 +18,20 @@ class StoreError(RuntimeError):
     pass
 
 
+def _store_directory(root: Path, name: str) -> Path:
+    """Create one store area without accepting a symlink or junction."""
+
+    path = root / name
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        resolved = path.resolve()
+    except (OSError, RuntimeError) as error:
+        raise StoreError(f"cannot create store directory {path}: {error}") from error
+    if path.is_symlink() or not path.is_dir() or resolved != root / name:
+        raise StoreError(f"store directory is redirected or invalid: {path}")
+    return path
+
+
 def _safe_artifact(name: str) -> Path:
     path = Path(name)
     if path.anchor or not path.parts or ".." in path.parts:
@@ -24,14 +39,36 @@ def _safe_artifact(name: str) -> Path:
     return path
 
 
+def _safe_run_directory(root: Path, run_id: object) -> Path:
+    if (
+        not isinstance(run_id, str)
+        or not run_id
+        or run_id in {".", ".."}
+        or "/" in run_id
+        or "\\" in run_id
+        or ":" in run_id
+        or Path(run_id).name != run_id
+        or Path(run_id).anchor
+    ):
+        raise StoreError(f"invalid run id {run_id!r}")
+    directory = root / run_id
+    try:
+        redirected = (
+            directory.is_symlink() or not directory.is_dir() or directory.resolve() != root / run_id
+        )
+    except (OSError, RuntimeError):
+        redirected = True
+    if redirected:
+        raise StoreError(f"unknown run id {run_id!r} (missing or redirected)")
+    return directory
+
+
 class ArtifactStore:
     def __init__(self, root: str | Path = ".simcairn") -> None:
         self.root = Path(root).resolve()
-        self.cache_root = self.root / "cache"
-        self.run_root = self.root / "runs"
-        self.work_root = self.root / "work"
-        for directory in (self.cache_root, self.run_root, self.work_root):
-            directory.mkdir(parents=True, exist_ok=True)
+        self.cache_root = _store_directory(self.root, "cache")
+        self.run_root = _store_directory(self.root, "runs")
+        self.work_root = _store_directory(self.root, "work")
 
     def cache_path(self, activity_id: str) -> Path:
         if len(activity_id) != 64 or any(
@@ -172,39 +209,44 @@ class ArtifactStore:
         return data
 
     def new_run_id(self, plan_id: str) -> str:
-        prefix = plan_id[:12]
-        used: set[int] = set()
-        for path in self.run_root.glob(f"{prefix}-*"):
-            try:
-                used.add(int(path.name.rsplit("-", 1)[1]))
-            except ValueError:
-                continue
-        sequence = 1
-        while sequence in used:
-            sequence += 1
-        return f"{prefix}-{sequence:04d}"
+        """Return a non-recycled run generation identifier.
+
+        A monotonic-looking suffix can be reused after an old run is removed.
+        That lets a stale collection plan mistake a newly created run for the
+        old one. A cryptographic generation suffix also removes the concurrent
+        scan-and-create race between two processes starting the same plan.
+        """
+
+        return f"{plan_id[:12]}-{secrets.token_hex(16)}"
 
     def create_run(self, plan: Plan) -> tuple[str, Path]:
-        run_id = self.new_run_id(plan.id)
-        directory = self.run_root / run_id
-        directory.mkdir(parents=False, exist_ok=False)
+        for _attempt in range(16):
+            run_id = self.new_run_id(plan.id)
+            directory = self.run_root / run_id
+            try:
+                directory.mkdir(parents=False, exist_ok=False)
+            except FileExistsError:
+                continue
+            break
+        else:
+            raise StoreError("could not allocate a unique run generation")
         (directory / "plan.json").write_text(stable_json(plan.as_dict()), encoding="utf-8")
         return run_id, directory
 
     def load_plan(self, run_id: str) -> Plan:
-        if Path(run_id).name != run_id:
-            raise StoreError(f"invalid run id {run_id!r}")
-        path = self.run_root / run_id / "plan.json"
         try:
+            path = _safe_run_directory(self.run_root, run_id) / "plan.json"
             data = strict_json_loads(path.read_text(encoding="utf-8"))
             return Plan.from_dict(data)
-        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        except (
+            StoreError,
+            OSError,
+            json.JSONDecodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise StoreError(f"cannot load run {run_id}: {error}") from error
 
     def run_directory(self, run_id: str) -> Path:
-        if Path(run_id).name != run_id:
-            raise StoreError(f"invalid run id {run_id!r}")
-        directory = self.run_root / run_id
-        if not directory.is_dir():
-            raise StoreError(f"unknown run id {run_id!r}")
-        return directory
+        return _safe_run_directory(self.run_root, run_id)

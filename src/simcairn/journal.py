@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import math
 import os
@@ -11,7 +12,9 @@ import subprocess  # nosec B404
 import sys
 from collections.abc import Callable
 from contextlib import AbstractContextManager, suppress
+from ctypes import wintypes
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -23,6 +26,72 @@ from simcairn.model import canonical_json, strict_json_loads
 
 class JournalError(RuntimeError):
     pass
+
+
+def _probe_windows_process(pid: int) -> tuple[str, str | None]:
+    """Probe one Windows process through the kernel API, without a child shell.
+
+    ``GetProcessTimes`` returns 100 ns ticks since 1601.  The offset preserves
+    the marker produced by the former PowerShell ``DateTime.Ticks`` probe, so a
+    lock remains readable across a SimCairn upgrade.
+    """
+
+    if pid <= 0:
+        return "dead", None
+    if pid > 0xFFFFFFFF:
+        return "unknown", None
+    loader = getattr(ctypes, "WinDLL", None)
+    get_last_error = getattr(ctypes, "get_last_error", None)
+    if loader is None or get_last_error is None:
+        return "unknown", None
+    try:
+        kernel32 = loader("kernel32", use_last_error=True)
+    except OSError:
+        return "unknown", None
+
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetProcessTimes.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    ]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    process_query_limited_information = 0x1000
+    error_invalid_parameter = 87
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return ("dead", None) if get_last_error() == error_invalid_parameter else ("unknown", None)
+    creation = wintypes.FILETIME()
+    exit_time = wintypes.FILETIME()
+    kernel_time = wintypes.FILETIME()
+    user_time = wintypes.FILETIME()
+    exit_code = wintypes.DWORD()
+    try:
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return "unknown", None
+        if exit_code.value != 259:  # STILL_ACTIVE
+            return "dead", None
+        if not kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            return "unknown", None
+    finally:
+        kernel32.CloseHandle(handle)
+    filetime_ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+    dotnet_epoch_offset = 504_911_232_000_000_000
+    return "alive", f"win32-start:{filetime_ticks + dotnet_epoch_offset}"
 
 
 def _probe_process(pid: int) -> tuple[str, str | None]:
@@ -43,15 +112,8 @@ def _probe_process(pid: int) -> tuple[str, str | None]:
         return ("alive", f"linux-start:{fields[19]}") if len(fields) > 19 else ("unknown", None)
 
     if sys.platform == "win32":
-        command = [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            f"(Get-Process -Id {pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks",
-        ]
-    else:
-        command = ["ps", "-o", "lstart=", "-p", str(pid)]
+        return _probe_windows_process(pid)
+    command = ["ps", "-o", "lstart=", "-p", str(pid)]
     try:
         completed = subprocess.run(  # nosec B603
             command,
@@ -66,6 +128,15 @@ def _probe_process(pid: int) -> tuple[str, str | None]:
     if completed.returncode == 0 and marker:
         return "alive", f"{sys.platform}-start:{marker}"
     return "dead", None
+
+
+@lru_cache(maxsize=4)
+def _probe_current_process(pid: int) -> tuple[str, str | None]:
+    """Cache only this interpreter's marker; the PID key keeps forks separate."""
+
+    if pid != os.getpid():
+        return "unknown", None
+    return _probe_process(pid)
 
 
 def _owner_state(owner: object) -> str:
@@ -91,7 +162,9 @@ def _owner_state(owner: object) -> str:
         return "unknown"
     if recorded_marker == "unknown":
         return "unknown"
-    status, current_marker = _probe_process(pid)
+    status, current_marker = (
+        _probe_current_process(pid) if pid == os.getpid() else _probe_process(pid)
+    )
     if status == "dead":
         return "stale"
     if status == "alive" and current_marker != recorded_marker:
@@ -133,12 +206,64 @@ def _remove_directory_lock(path: Path, marker: Path, raw: bytes) -> None:
         raise JournalError("run.lock changed during unlock; retry") from error
 
 
+def _lock_is_redirected(run_directory: Path, path: Path) -> bool:
+    """Treat a link or junction in place of the direct lock child as hostile."""
+
+    try:
+        resolved_run = run_directory.resolve()
+        expected = run_directory.absolute()
+        return (
+            run_directory.is_symlink()
+            or not run_directory.is_dir()
+            or resolved_run != expected
+            or path.is_symlink()
+            or path.resolve() != expected / "run.lock"
+        )
+    except (OSError, RuntimeError):
+        return True
+
+
+def run_lock_state(run_directory: Path) -> str | None:
+    """Report a run lock without touching it.
+
+    `clear_run_lock` already decides whether an owner is stale, but it decides
+    it in order to remove the lock. Anything that needs to know whether a run is
+    busy -- reclaiming the store, for one -- must be able to ask without
+    changing the answer.
+
+    Returns None when the run is not locked, and otherwise the owner state:
+    `alive`, `stale`, `foreign`, or `unknown`. Only `stale` means the run has
+    certainly finished; a lock this host cannot identify is not evidence that
+    nobody holds it.
+    """
+
+    path = run_directory / "run.lock"
+    if path.is_symlink():
+        return "unknown"
+    if not path.exists():
+        return None
+    if _lock_is_redirected(run_directory, path):
+        return "unknown"
+    try:
+        if path.is_dir():
+            _marker, _raw, owner = _directory_owner(path)
+        else:
+            _raw, owner = _read_owner(path)
+    except (OSError, JournalError):
+        return "unknown"
+    return _owner_state(owner)
+
+
 def clear_run_lock(run_directory: Path, *, force: bool = False) -> dict[str, Any]:
     """Remove a stale lock, or force an audited removal when ownership is uncertain."""
 
     path = run_directory / "run.lock"
+    if path.is_symlink():
+        raise JournalError("refusing to unlock a redirected run.lock")
     if not path.exists():
         return {"removed": False, "reason": "run is not locked"}
+    if _lock_is_redirected(run_directory, path):
+        raise JournalError("refusing to unlock a redirected run.lock")
     is_directory = path.is_dir()
     marker: Path | None = None
     if is_directory:
@@ -273,7 +398,9 @@ class RunLock(AbstractContextManager["RunLock"]):
         self._marker: Path | None = None
 
     def __enter__(self) -> RunLock:
-        process_status, process_start = _probe_process(os.getpid())
+        if _lock_is_redirected(self.path.parent, self.path):
+            raise JournalError("refusing to use a redirected or missing run directory")
+        process_status, process_start = _probe_current_process(os.getpid())
         payload = (
             canonical_json(
                 {
@@ -291,6 +418,8 @@ class RunLock(AbstractContextManager["RunLock"]):
             try:
                 self.path.mkdir()
             except FileExistsError as error:
+                if _lock_is_redirected(self.path.parent, self.path):
+                    raise JournalError("refusing to use a redirected run.lock") from error
                 if self.path.is_dir():
                     marker, raw, owner = _directory_owner(self.path)
                 else:
@@ -313,6 +442,10 @@ class RunLock(AbstractContextManager["RunLock"]):
                 except FileNotFoundError:
                     continue
                 continue
+            if _lock_is_redirected(self.path.parent, self.path):
+                with suppress(OSError):
+                    self.path.rmdir()
+                raise JournalError("refusing to use a redirected run.lock")
             nonce = strict_json_loads(encoded_payload)["nonce"]
             marker = self.path / f"owner-{nonce}.json"
             try:

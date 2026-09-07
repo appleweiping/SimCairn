@@ -7,14 +7,16 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+from simcairn import maintenance
 from simcairn._version import __version__
 from simcairn.api import Runner, compile_plan, configure_gf180, configure_sky130, load_manifest
+from simcairn.coordination import StoreCoordinationError, StoreReadLease
 from simcairn.fingerprints import stable_json
 from simcairn.gf180 import GF180ConfigurationError
 from simcairn.journal import JournalError, clear_run_lock
 from simcairn.manifest import ManifestError
 from simcairn.sky130 import Sky130ConfigurationError
-from simcairn.store import StoreError
+from simcairn.store import ArtifactStore, StoreError
 
 
 def _runner(args: argparse.Namespace) -> Runner:
@@ -73,10 +75,53 @@ def _explain(args: argparse.Namespace) -> int:
     return 0 if result["cached"] else 1
 
 
+def _store_status(args: argparse.Namespace) -> int:
+    survey = maintenance.survey(ArtifactStore(args.store))
+    sys.stdout.write(stable_json(survey.as_dict()))
+    return 0
+
+
+def _store_verify(args: argparse.Namespace) -> int:
+    broken = maintenance.verify_all(ArtifactStore(args.store))
+    sys.stdout.write(
+        stable_json(
+            {
+                "checked": True,
+                "failed": len(broken),
+                "entries": [entry.as_dict() for entry in broken],
+            }
+        )
+    )
+    # A store holding a cairn that no longer matches its manifest is a failure
+    # a caller has to notice, so it leaves through the exit status too.
+    return 0 if not broken else 3
+
+
+def _store_gc(args: argparse.Namespace) -> int:
+    store = ArtifactStore(args.store)
+    plan = maintenance.plan_collection(
+        store,
+        keep_runs=args.keep_runs,
+        include_unreadable=args.include_unreadable,
+        include_work=not args.keep_work,
+    )
+    payload: dict[str, object] = {"applied": False, "plan": plan.as_dict()}
+    if args.apply:
+        report = maintenance.apply_collection(store, plan)
+        payload = {"applied": True, "plan": plan.as_dict(), "result": report.as_dict()}
+        if report.failures:
+            sys.stdout.write(stable_json(payload))
+            return 3
+    sys.stdout.write(stable_json(payload))
+    return 0
+
+
 def _unlock(args: argparse.Namespace) -> int:
     runner = _runner(args)
-    directory = runner.store.run_directory(args.run_id)
-    sys.stdout.write(stable_json(clear_run_lock(directory, force=args.force)))
+    with StoreReadLease(runner.store.root):
+        directory = runner.store.run_directory(args.run_id)
+        result = clear_run_lock(directory, force=args.force)
+    sys.stdout.write(stable_json(result))
     return 0
 
 
@@ -150,6 +195,40 @@ def _parser() -> argparse.ArgumentParser:
     explain.add_argument("--store", default=".simcairn")
     explain.set_defaults(handler=_explain)
 
+    store_status = subparsers.add_parser("store-status", help="summarize what the store holds")
+    store_status.add_argument("--store", default=".simcairn")
+    store_status.set_defaults(handler=_store_status)
+
+    store_verify = subparsers.add_parser(
+        "store-verify", help="re-check every cached cairn against its manifest"
+    )
+    store_verify.add_argument("--store", default=".simcairn")
+    store_verify.set_defaults(handler=_store_verify)
+
+    store_gc = subparsers.add_parser(
+        "store-gc", help="report what could be reclaimed, and reclaim it with --apply"
+    )
+    store_gc.add_argument("--store", default=".simcairn")
+    store_gc.add_argument(
+        "--keep-runs",
+        type=int,
+        default=maintenance.DEFAULT_KEEP_RUNS,
+        help="most recent runs to retain; a locked run is retained whatever its age",
+    )
+    store_gc.add_argument(
+        "--include-unreadable",
+        action="store_true",
+        help="also remove entries and runs that cannot be read, which are kept "
+        "as evidence by default",
+    )
+    store_gc.add_argument("--keep-work", action="store_true", help="leave work sandboxes alone")
+    store_gc.add_argument(
+        "--apply",
+        action="store_true",
+        help="actually remove what the plan names; without it nothing is deleted",
+    )
+    store_gc.set_defaults(handler=_store_gc)
+
     unlock = subparsers.add_parser("unlock", help="inspect and remove a stale run lock")
     unlock.add_argument("run_id")
     unlock.add_argument("--store", default=".simcairn")
@@ -190,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.handler(args))
     except (
         ManifestError,
+        StoreCoordinationError,
         StoreError,
         JournalError,
         Sky130ConfigurationError,
