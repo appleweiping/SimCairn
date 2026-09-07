@@ -2,9 +2,11 @@ import json
 import os
 import socket
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
+import simcairn.journal as journal
 from simcairn.fingerprints import fingerprint, sha256_file
 from simcairn.journal import (
     Journal,
@@ -355,9 +357,153 @@ def test_run_lock_payload_has_nonce_and_process_start_marker(tmp_path):
         assert isinstance(owner["process_start"], str)
 
 
-def test_run_locks_probe_the_current_process_start_only_once(tmp_path, monkeypatch):
-    import simcairn.journal as journal
+class _FakeWindowsFunction:
+    def __init__(self, callback):
+        self.callback = callback
+        self.argtypes = None
+        self.restype = None
 
+    def __call__(self, *args):
+        return self.callback(*args)
+
+
+def test_windows_process_probe_uses_creation_time_without_a_shell(monkeypatch):
+    closed = []
+
+    def get_process_times(handle, creation, exit_time, kernel_time, user_time):
+        assert handle == 17
+        creation._obj.dwHighDateTime = 1
+        creation._obj.dwLowDateTime = 2
+        assert all(
+            pointer._obj.dwHighDateTime == 0 for pointer in (exit_time, kernel_time, user_time)
+        )
+        return True
+
+    def mark_active(_handle, exit_code):
+        exit_code._obj.value = 259
+        return True
+
+    def open_process(access, inherit, pid):
+        assert access == 0x1000
+        assert inherit is False
+        assert pid == 123
+        return 17
+
+    kernel32 = SimpleNamespace(
+        OpenProcess=_FakeWindowsFunction(open_process),
+        GetExitCodeProcess=_FakeWindowsFunction(mark_active),
+        GetProcessTimes=_FakeWindowsFunction(get_process_times),
+        CloseHandle=_FakeWindowsFunction(lambda handle: closed.append(handle) or True),
+    )
+    monkeypatch.setattr(journal.ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
+    monkeypatch.setattr(journal.ctypes, "get_last_error", lambda: 0, raising=False)
+
+    ticks = (1 << 32) | 2
+    assert journal._probe_windows_process(123) == (
+        "alive",
+        f"win32-start:{ticks + 504_911_232_000_000_000}",
+    )
+    assert closed == [17]
+
+
+def test_generic_process_probe_routes_windows_without_spawning_a_shell(monkeypatch):
+    monkeypatch.setattr(journal.sys, "platform", "win32")
+    monkeypatch.setattr(journal, "_probe_windows_process", lambda pid: ("alive", f"native:{pid}"))
+    monkeypatch.setattr(
+        journal.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("must not spawn a child process"),
+    )
+    assert journal._probe_process(123) == ("alive", "native:123")
+
+
+def test_windows_process_probe_fails_closed_when_the_api_is_unavailable(monkeypatch):
+    monkeypatch.delattr(journal.ctypes, "WinDLL", raising=False)
+    assert journal._probe_windows_process(123) == ("unknown", None)
+
+    monkeypatch.setattr(
+        journal.ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: pytest.fail("must not load without get_last_error"),
+        raising=False,
+    )
+    monkeypatch.delattr(journal.ctypes, "get_last_error", raising=False)
+    assert journal._probe_windows_process(123) == ("unknown", None)
+
+    def fail_loader(*_args, **_kwargs):
+        raise OSError("injected API load failure")
+
+    monkeypatch.setattr(journal.ctypes, "WinDLL", fail_loader, raising=False)
+    monkeypatch.setattr(journal.ctypes, "get_last_error", lambda: 0, raising=False)
+    assert journal._probe_windows_process(123) == ("unknown", None)
+
+
+@pytest.mark.parametrize("last_error, expected", [(87, "dead"), (5, "unknown")])
+def test_windows_process_probe_distinguishes_missing_from_uninspectable(
+    monkeypatch, last_error, expected
+):
+    kernel32 = SimpleNamespace(
+        OpenProcess=_FakeWindowsFunction(lambda _access, _inherit, _pid: 0),
+        GetExitCodeProcess=_FakeWindowsFunction(
+            lambda *_args: pytest.fail("must not read an exit code")
+        ),
+        GetProcessTimes=_FakeWindowsFunction(lambda *_args: pytest.fail("must not read times")),
+        CloseHandle=_FakeWindowsFunction(
+            lambda *_args: pytest.fail("must not close a null handle")
+        ),
+    )
+    monkeypatch.setattr(journal.ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
+    monkeypatch.setattr(journal.ctypes, "get_last_error", lambda: last_error, raising=False)
+
+    assert journal._probe_windows_process(123) == (expected, None)
+
+
+@pytest.mark.parametrize("pid", [0, -1])
+def test_windows_process_probe_rejects_nonpositive_values_as_dead(monkeypatch, pid):
+    monkeypatch.setattr(
+        journal.ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: pytest.fail("must not load the Windows API"),
+        raising=False,
+    )
+    assert journal._probe_windows_process(pid) == ("dead", None)
+
+
+def test_windows_process_probe_rejects_values_above_a_dword_as_unknown(monkeypatch):
+    monkeypatch.setattr(
+        journal.ctypes,
+        "WinDLL",
+        lambda *_args, **_kwargs: pytest.fail("must not load the Windows API"),
+        raising=False,
+    )
+    assert journal._probe_windows_process(2**32) == ("unknown", None)
+
+
+@pytest.mark.parametrize("exit_query, exit_code", [(False, 0), (True, 1), (True, 259)])
+def test_windows_process_probe_closes_handle_on_terminal_or_unknown_state(
+    monkeypatch, exit_query, exit_code
+):
+    closed = []
+
+    def get_exit_code(_handle, pointer):
+        pointer._obj.value = exit_code
+        return exit_query
+
+    kernel32 = SimpleNamespace(
+        OpenProcess=_FakeWindowsFunction(lambda _access, _inherit, _pid: 19),
+        GetExitCodeProcess=_FakeWindowsFunction(get_exit_code),
+        GetProcessTimes=_FakeWindowsFunction(lambda *_args: False),
+        CloseHandle=_FakeWindowsFunction(lambda handle: closed.append(handle) or True),
+    )
+    monkeypatch.setattr(journal.ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
+    monkeypatch.setattr(journal.ctypes, "get_last_error", lambda: 0, raising=False)
+
+    expected = "dead" if exit_query and exit_code != 259 else "unknown"
+    assert journal._probe_windows_process(123) == (expected, None)
+    assert closed == [19]
+
+
+def test_run_locks_probe_the_current_process_start_only_once(tmp_path, monkeypatch):
     run = tmp_path / "run"
     run.mkdir()
     calls = 0

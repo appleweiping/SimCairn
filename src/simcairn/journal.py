@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import math
 import os
@@ -11,6 +12,7 @@ import subprocess  # nosec B404
 import sys
 from collections.abc import Callable
 from contextlib import AbstractContextManager, suppress
+from ctypes import wintypes
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -24,6 +26,72 @@ from simcairn.model import canonical_json, strict_json_loads
 
 class JournalError(RuntimeError):
     pass
+
+
+def _probe_windows_process(pid: int) -> tuple[str, str | None]:
+    """Probe one Windows process through the kernel API, without a child shell.
+
+    ``GetProcessTimes`` returns 100 ns ticks since 1601.  The offset preserves
+    the marker produced by the former PowerShell ``DateTime.Ticks`` probe, so a
+    lock remains readable across a SimCairn upgrade.
+    """
+
+    if pid <= 0:
+        return "dead", None
+    if pid > 0xFFFFFFFF:
+        return "unknown", None
+    loader = getattr(ctypes, "WinDLL", None)
+    get_last_error = getattr(ctypes, "get_last_error", None)
+    if loader is None or get_last_error is None:
+        return "unknown", None
+    try:
+        kernel32 = loader("kernel32", use_last_error=True)
+    except OSError:
+        return "unknown", None
+
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetProcessTimes.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    ]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    process_query_limited_information = 0x1000
+    error_invalid_parameter = 87
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return ("dead", None) if get_last_error() == error_invalid_parameter else ("unknown", None)
+    creation = wintypes.FILETIME()
+    exit_time = wintypes.FILETIME()
+    kernel_time = wintypes.FILETIME()
+    user_time = wintypes.FILETIME()
+    exit_code = wintypes.DWORD()
+    try:
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return "unknown", None
+        if exit_code.value != 259:  # STILL_ACTIVE
+            return "dead", None
+        if not kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            return "unknown", None
+    finally:
+        kernel32.CloseHandle(handle)
+    filetime_ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+    dotnet_epoch_offset = 504_911_232_000_000_000
+    return "alive", f"win32-start:{filetime_ticks + dotnet_epoch_offset}"
 
 
 def _probe_process(pid: int) -> tuple[str, str | None]:
@@ -44,15 +112,8 @@ def _probe_process(pid: int) -> tuple[str, str | None]:
         return ("alive", f"linux-start:{fields[19]}") if len(fields) > 19 else ("unknown", None)
 
     if sys.platform == "win32":
-        command = [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            f"(Get-Process -Id {pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks",
-        ]
-    else:
-        command = ["ps", "-o", "lstart=", "-p", str(pid)]
+        return _probe_windows_process(pid)
+    command = ["ps", "-o", "lstart=", "-p", str(pid)]
     try:
         completed = subprocess.run(  # nosec B603
             command,

@@ -49,8 +49,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
   owner.
 - Directory sizing ignores symbolic links rather than following them, so a link out of the
   store can neither inflate a total nor be walked into.
-- Current-process start markers are cached by PID, avoiding a subprocess probe for every short
-  store lease on Windows without caching the liveness of arbitrary lock owners.
+- Windows process start markers use the native kernel API instead of a child PowerShell process;
+  current-process markers are cached by PID without caching arbitrary owners' liveness.
 
 ## [0.2.0] - 2026-08-31
 
