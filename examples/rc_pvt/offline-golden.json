@@ -770,14 +770,14 @@
     }
   ],
   "run": {
-    "aggregate_activity_id": "79af4aa63754fa2b7548c9a3b9e9c66ef9d5e8e47dd3afacf9016eafa38c1072",
+    "aggregate_activity_id": "0127e65bde1134d07a7c789683e7cdb0a8905e916f62a4ed40c2439eb758b513",
     "contract": "regressistor.measurement-bundle/2",
     "producer": "SimCairn",
     "producer_identity": {
       "adapter_implementation_sha256": "aaa76bb2654444ba0b5e8aee7c1e5908f9146c705c84aa6f766168d45eda6c4e",
       "distribution": "simcairn",
       "package_tree_algorithm": "simcairn-python-source-tree/1",
-      "package_tree_sha256": "8abfa550a6b576a176d3d81bb251d6d1cdefc440a32a6cf75911e4ab3ad702d0",
+      "package_tree_sha256": "5f7486798869a3423487320a745e0778a33a36de36213cdc08cdb168de318eeb",
       "validation_implementation_sha256": "90e27f73e3261bc58646bb49d8310d524afa29899a7a5523d789f383329ef4c4",
       "version": "0.2.0"
     }

@@ -133,6 +133,33 @@ def _remove_directory_lock(path: Path, marker: Path, raw: bytes) -> None:
         raise JournalError("run.lock changed during unlock; retry") from error
 
 
+def run_lock_state(run_directory: Path) -> str | None:
+    """Report a run lock without touching it.
+
+    `clear_run_lock` already decides whether an owner is stale, but it decides
+    it in order to remove the lock. Anything that needs to know whether a run is
+    busy -- reclaiming the store, for one -- must be able to ask without
+    changing the answer.
+
+    Returns None when the run is not locked, and otherwise the owner state:
+    `alive`, `stale`, `foreign`, or `unknown`. Only `stale` means the run has
+    certainly finished; a lock this host cannot identify is not evidence that
+    nobody holds it.
+    """
+
+    path = run_directory / "run.lock"
+    if not path.exists():
+        return None
+    try:
+        if path.is_dir():
+            _marker, _raw, owner = _directory_owner(path)
+        else:
+            _raw, owner = _read_owner(path)
+    except (OSError, JournalError):
+        return "unknown"
+    return _owner_state(owner)
+
+
 def clear_run_lock(run_directory: Path, *, force: bool = False) -> dict[str, Any]:
     """Remove a stale lock, or force an audited removal when ownership is uncertain."""
 

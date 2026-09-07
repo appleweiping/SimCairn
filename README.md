@@ -31,6 +31,8 @@ produced a result.
 - An ngspice batch adapter for decks that emit requested `.measure` values.
 - Offline, content-pinned SKY130A and GF180MCU 27-point PVT materializers.
 - Stable JSON and CSV result collection.
+- Store survey, whole-store verification, and a garbage collector that reports
+  before it removes and refuses to act on anything it cannot account for.
 
 ## RC PVT reference and regression contract
 
@@ -217,12 +219,69 @@ simcairn status RUN_ID [--store PATH]
 simcairn collect RUN_ID [--store PATH] [-o OUTPUT]
 simcairn explain ACTIVITY_ID [--store PATH]
 simcairn unlock RUN_ID [--store PATH] [--force]
+simcairn store-status [--store PATH]
+simcairn store-verify [--store PATH]
+simcairn store-gc [--store PATH] [--keep-runs N] [--apply]
+                  [--include-unreadable] [--keep-work]
 simcairn configure-sky130 DECISION OUTPUT [TRUST ANCHORS] --pdk-root PATH
 simcairn configure-gf180 DECISION OUTPUT [TRUST ANCHORS] --pdk-root PATH
 ```
 
 Exit status is 0 for success, 1 for a completed failed run or cache miss from
-`explain`, and 2 for invalid input, store, journal, or CLI values.
+`explain`, 2 for invalid input, store, journal, or CLI values, and 3 for a
+store check that found a corrupt cairn or a collection that could not remove
+everything it planned to.
+
+## Store maintenance
+
+A cairn store only grows. Entries outlive the run that published them on
+purpose, which is the point of a cache and also the reason the directory
+becomes the largest thing on the disk.
+
+```console
+simcairn store-status                 # what is here, and how large
+simcairn store-verify                 # re-check every cairn against its manifest
+simcairn store-gc                     # what could be reclaimed; removes nothing
+simcairn store-gc --apply             # actually reclaim it
+```
+
+`store-verify` re-hashes every published artifact. Bit rot in a cached result
+is otherwise noticed only when a run silently reuses it. It exits 3 when any
+cairn no longer matches its manifest.
+
+### What garbage collection will not do
+
+Reclaiming is the part that has to be careful, because the failure is silent
+and permanent: an entry removed while something still needs it turns a cache
+hit into a re-simulation at best and a broken resume at worst. Four rules keep
+that from happening.
+
+**Nothing is removed unless asked.** `store-gc` reports a plan and changes
+nothing. Only `--apply` deletes, and only what the plan named.
+
+**A run that might still be running is untouchable**, and so is everything it
+references, whatever its age. A lock is judged live unless it is *positively*
+stale: a lock held on another host, or one whose owner cannot be identified,
+counts as live. The uncertain case has to be the safe one. The plan is
+re-checked as it is applied, so a run that acquired a lock in between is
+skipped rather than removed.
+
+**An entry that cannot be read is kept**, not swept up. A corrupt cairn is
+evidence about a failure someone may want to look at, and deleting evidence to
+reclaim a few megabytes is the wrong trade. `--include-unreadable` overrides
+this.
+
+**A run whose plan will not parse blocks collection entirely.** Retaining that
+run is not enough on its own: the list of activities it refers to comes back
+empty, and an empty list reads exactly like "refers to nothing". Believing it
+would mark every entry in the store orphaned and remove all of them. While any
+retained run cannot be read, no entry is collectable and the plan says so.
+
+Work sandboxes are removed only when no run in the store holds a live lock,
+because a sandbox carries no record of which run owns it.
+
+`--keep-runs N` sets how many recent runs survive; a locked run survives
+regardless.
 
 ## Python API
 
