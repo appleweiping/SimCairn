@@ -2,7 +2,7 @@
 
 All notable changes are documented here. Versions follow Semantic Versioning.
 
-## [0.4.0] - 2026-09-08
+## [0.4.0] - 2026-09-09
 
 ### Added
 
@@ -14,6 +14,10 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Safety
 
+- Windows simulator targets start suspended and enter their kill-on-close job
+  before executing, closing the fast-exit/early-descendant assignment race.
+  Native regressions cover assignment/resume failure and descendant cleanup.
+  This sequence does not claim atomic containment across abrupt parent death.
 - Content-addressed characterization publishers now take a nonce-owned per-key claim and use
   native atomic no-replace rename operations; even a non-cooperating local racer cannot have
   an existing destination replaced.
