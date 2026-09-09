@@ -5,7 +5,6 @@ import sys
 import threading
 import time
 from dataclasses import replace
-from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -56,19 +55,17 @@ def test_real_mock_subprocess_run_collect_and_cache(tmp_path):
 
 def test_collect_strictly_rejects_ambiguous_results_json(tmp_path):
     runner = Runner(tmp_path / "store")
-    report = runner.run(load_manifest(EXAMPLE))
-    plan = runner.store.load_plan(report.run_id)
-    target = runner.store.cache_path(plan.activities[-1].id)
-    results = target / "files" / "results.json"
-    results.write_text('[{"R":"1k","R":"2k"}]\n', encoding="utf-8")
-    manifest_path = target / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    record = next(item for item in manifest["artifacts"] if item["name"] == "results.json")
-    content = results.read_bytes()
-    record.update(size=len(content), sha256=sha256(content).hexdigest())
-    manifest_path.write_text(canonical_json(manifest), encoding="utf-8")
+    plan = compile_plan(load_manifest(EXAMPLE))
+    run_id, _directory = runner.store.create_run(plan)
+    aggregate = plan.activities[-1]
+    sandbox = tmp_path / "aggregate"
+    sandbox.mkdir()
+    (sandbox / "results.json").write_text('[{"R":"1k","R":"2k"}]\n', encoding="utf-8")
+    (sandbox / "results.csv").write_text("R\n1k\n", encoding="utf-8")
+    (sandbox / "regression-bundle.json").write_text("{}\n", encoding="utf-8")
+    runner.store.publish(aggregate, sandbox)
     with pytest.raises(StoreError, match="duplicate"):
-        runner.collect(report.run_id)
+        runner.collect(run_id)
 
 
 def test_collect_rejects_an_unpublished_aggregate_without_running_the_plan(tmp_path):
