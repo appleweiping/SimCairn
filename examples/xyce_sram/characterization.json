@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "name": "synthetic_sram_like",
+  "deck": "sram_like.cir.tmpl",
+  "inputs": [],
+  "corners": [
+    {
+      "process": "slow",
+      "voltage": 0.9,
+      "temperature_c": 125.0,
+      "parameters": {"process_scale": 0.85}
+    },
+    {
+      "process": "typical",
+      "voltage": 1.0,
+      "temperature_c": 25.0,
+      "parameters": {"process_scale": 1.0}
+    },
+    {
+      "process": "fast",
+      "voltage": 1.1,
+      "temperature_c": -40.0,
+      "parameters": {"process_scale": 1.15}
+    }
+  ],
+  "analyses": [
+    {
+      "kind": "op",
+      "name": "hold",
+      "outputs": [
+        {"name": "q_voltage", "expression": "V(q)", "unit": "V"},
+        {"name": "qb_voltage", "expression": "V(qb)", "unit": "V"}
+      ]
+    },
+    {
+      "kind": "dc",
+      "name": "read_transfer",
+      "source": "VBL",
+      "axis_expression": "V(bl)",
+      "start": 0.0,
+      "stop": 1.1,
+      "step": 0.01,
+      "outputs": [
+        {"name": "q_voltage", "expression": "V(q)", "unit": "V"}
+      ]
+    },
+    {
+      "kind": "ac",
+      "name": "small_signal",
+      "sweep": "dec",
+      "points": 20,
+      "start_hz": 1000.0,
+      "stop_hz": 10000000000.0,
+      "outputs": [
+        {"name": "q_magnitude", "expression": "VM(q)", "unit": "V"}
+      ]
+    },
+    {
+      "kind": "tran",
+      "name": "read_transient",
+      "step_seconds": 1e-11,
+      "stop_seconds": 1e-8,
+      "outputs": [
+        {"name": "q_voltage", "expression": "V(q)", "unit": "V"},
+        {"name": "wordline_voltage", "expression": "V(wl)", "unit": "V"}
+      ]
+    },
+    {
+      "kind": "noise",
+      "name": "read_noise",
+      "output_node": "q",
+      "reference_node": "0",
+      "source": "VBL",
+      "sweep": "dec",
+      "points": 20,
+      "start_hz": 1000.0,
+      "stop_hz": 10000000000.0,
+      "outputs": [
+        {"name": "output_noise", "expression": "ONOISE", "unit": "V^2/Hz"}
+      ]
+    }
+  ],
+  "limits": {
+    "max_deck_bytes": 1048576,
+    "max_input_bytes": 67108864,
+    "max_output_bytes": 16777216,
+    "max_log_bytes": 1048576,
+    "max_rows": 200000,
+    "max_columns": 64,
+    "max_runs": 64
+  }
+}

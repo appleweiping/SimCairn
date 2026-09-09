@@ -16,6 +16,7 @@ from simcairn.planner import compile_plan
 from simcairn.scheduler import execute_plan
 from simcairn.sky130 import configure_sky130
 from simcairn.store import ArtifactStore, StoreError
+from simcairn.xyce import XyceCommand, characterize_xyce
 
 
 class Runner:
@@ -113,6 +114,8 @@ class Runner:
 
 __all__ = [
     "Runner",
+    "XyceCommand",
+    "characterize_xyce",
     "compile_plan",
     "configure_gf180",
     "configure_sky130",

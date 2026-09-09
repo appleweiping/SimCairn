@@ -127,6 +127,7 @@ def compile_plan(manifest: Manifest) -> Plan:
                 "adapter": manifest.simulator.adapter,
                 "executable": manifest.simulator.executable,
                 "environment": dict(manifest.simulator.environment),
+                "measure_analysis": manifest.simulator.measure_analysis,
                 "measure_fields": [item.field for item in manifest.measures],
             },
             identity_payload={
@@ -134,6 +135,7 @@ def compile_plan(manifest: Manifest) -> Plan:
                 "adapter": manifest.simulator.adapter,
                 "executable": manifest.simulator.executable,
                 "environment": dict(manifest.simulator.environment),
+                "measure_analysis": manifest.simulator.measure_analysis,
                 "measure_fields": [item.field for item in manifest.measures],
             },
             producer_identity=producer_identity,

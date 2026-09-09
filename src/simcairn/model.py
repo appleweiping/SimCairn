@@ -207,12 +207,19 @@ def _validate_activity_contract(
             raise ValueError("simulate activity requires a point and no direct inputs")
         _exact_keys(
             payload,
-            {"adapter", "executable", "environment", "measure_fields"},
+            {"adapter", "executable", "environment", "measure_analysis", "measure_fields"},
             "simulate payload",
         )
         _exact_keys(
             identity,
-            {"adapter_identity", "adapter", "executable", "environment", "measure_fields"},
+            {
+                "adapter_identity",
+                "adapter",
+                "executable",
+                "environment",
+                "measure_analysis",
+                "measure_fields",
+            },
             "simulate identity",
         )
         adapter = _text(payload["adapter"], "simulate adapter")
@@ -220,6 +227,12 @@ def _validate_activity_contract(
         if executable is not None and (not isinstance(executable, str) or not executable):
             raise ValueError("simulate executable must be a non-empty string or null")
         environment = _string_mapping(payload["environment"], "simulate environment")
+        measure_analysis = payload["measure_analysis"]
+        if adapter == "xyce":
+            if measure_analysis not in {"tran", "dc", "ac", "noise"}:
+                raise ValueError("simulate Xyce measure_analysis is invalid")
+        elif measure_analysis is not None:
+            raise ValueError("simulate measure_analysis is only valid for Xyce")
         fields = _string_list(payload["measure_fields"], "simulate measure_fields")
         if any(_IDENTIFIER.fullmatch(field) is None for field in fields):
             raise ValueError("simulate measure_fields must be identifiers")
@@ -227,6 +240,7 @@ def _validate_activity_contract(
             identity.get("adapter") != adapter
             or identity.get("executable") != executable
             or identity.get("environment") != environment
+            or identity.get("measure_analysis") != measure_analysis
             or identity.get("measure_fields") != fields
         ):
             raise ValueError("simulate payload does not match its identity")

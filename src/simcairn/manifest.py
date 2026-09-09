@@ -23,6 +23,7 @@ class SimulatorConfig:
     adapter: str
     executable: str | None
     environment: tuple[tuple[str, str], ...]
+    measure_analysis: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,11 +148,14 @@ def load_manifest(path: str | Path) -> Manifest:
 
     simulator_data = _table(data, "simulator", errors)
     _reject_unknown_keys(
-        simulator_data, {"adapter", "executable", "environment"}, "simulator", errors
+        simulator_data,
+        {"adapter", "executable", "environment", "measure_analysis"},
+        "simulator",
+        errors,
     )
     adapter = _string(simulator_data, "adapter", "simulator", errors).casefold()
-    if adapter not in {"mock-rc", "ngspice"}:
-        errors.append("simulator.adapter must be 'mock-rc' or 'ngspice'")
+    if adapter not in {"mock-rc", "ngspice", "xyce"}:
+        errors.append("simulator.adapter must be 'mock-rc', 'ngspice', or 'xyce'")
     executable_value = simulator_data.get("executable")
     executable = None
     if executable_value is not None:
@@ -161,6 +165,25 @@ def load_manifest(path: str | Path) -> Manifest:
             errors.append("simulator.executable must be a non-empty string when present")
     if adapter == "ngspice" and executable is None:
         executable = "ngspice"
+    if adapter == "xyce" and executable is None:
+        executable = "Xyce"
+    measure_analysis_value = simulator_data.get("measure_analysis")
+    measure_analysis = None
+    if adapter == "xyce":
+        if not isinstance(measure_analysis_value, str) or measure_analysis_value.casefold() not in {
+            "tran",
+            "dc",
+            "ac",
+            "noise",
+        }:
+            errors.append(
+                "simulator.measure_analysis is required for xyce and must be "
+                "'tran', 'dc', 'ac', or 'noise'"
+            )
+        else:
+            measure_analysis = measure_analysis_value.casefold()
+    elif measure_analysis_value is not None:
+        errors.append("simulator.measure_analysis is only valid for the xyce adapter")
     environment_data = simulator_data.get("environment", {})
     environment: list[tuple[str, str]] = []
     if not isinstance(environment_data, dict):
@@ -324,7 +347,7 @@ def load_manifest(path: str | Path) -> Manifest:
         raise ManifestError(errors)
     return Manifest(
         manifest_path,
-        SimulatorConfig(adapter, executable, tuple(environment)),
+        SimulatorConfig(adapter, executable, tuple(environment), measure_analysis),
         TemplateConfig(deck, tuple(inputs)),
         SweepConfig(mode, tuple(parameters)),
         RunConfig(timeout_seconds, jobs, tuple(resources), fail_fast),

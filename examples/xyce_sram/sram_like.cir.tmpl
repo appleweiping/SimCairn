@@ -1,0 +1,21 @@
+Synthetic six-transistor SRAM-like characterization cell
+* This level-1 circuit is an educational, simulator-portable fixture.
+* It is not a foundry model and its values are not silicon evidence.
+* SIMCAIRN:PVT
+.PARAM VDD_VALUE={SIMCAIRN_VOLTAGE}
+.MODEL NM NMOS LEVEL=1 VTO=0.42 KP={120U*SIMCAIRN_PROCESS_SCALE} LAMBDA=0.02
+.MODEL PM PMOS LEVEL=1 VTO=-0.42 KP={55U*SIMCAIRN_PROCESS_SCALE} LAMBDA=0.02
+VDD vdd 0 {VDD_VALUE}
+VWL wl 0 PULSE(0 {VDD_VALUE} 1N 20P 20P 2N 5N)
+VBL bl 0 DC 0 AC 1 PULSE(0 {VDD_VALUE} 2N 20P 20P 4N 10N)
+VBLB blb 0 DC {VDD_VALUE}
+MPQ q qb vdd vdd PM W=1.2U L=0.15U
+MNQ q qb 0 0 NM W=0.6U L=0.15U
+MPQB qb q vdd vdd PM W=1.2U L=0.15U
+MNQB qb q 0 0 NM W=0.6U L=0.15U
+MNACCESSQ q wl bl 0 NM W=0.8U L=0.15U
+MNACCESSQB qb wl blb 0 NM W=0.8U L=0.15U
+CQ q 0 2F
+CQB qb 0 2F
+* SIMCAIRN:ANALYSIS
+.END

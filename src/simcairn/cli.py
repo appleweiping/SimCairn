@@ -10,6 +10,7 @@ from pathlib import Path
 from simcairn import maintenance
 from simcairn._version import __version__
 from simcairn.api import Runner, compile_plan, configure_gf180, configure_sky130, load_manifest
+from simcairn.characterization import CharacterizationError, load_characterization_plan
 from simcairn.coordination import StoreCoordinationError, StoreReadLease
 from simcairn.fingerprints import stable_json
 from simcairn.gf180 import GF180ConfigurationError
@@ -17,6 +18,7 @@ from simcairn.journal import JournalError, clear_run_lock
 from simcairn.manifest import ManifestError
 from simcairn.sky130 import Sky130ConfigurationError
 from simcairn.store import ArtifactStore, StoreError
+from simcairn.xyce import XyceCommand, XyceError, characterize_xyce
 
 
 def _runner(args: argparse.Namespace) -> Runner:
@@ -155,6 +157,19 @@ def _configure_gf180(args: argparse.Namespace) -> int:
     return 0
 
 
+def _characterize_xyce(args: argparse.Namespace) -> int:
+    plan = load_characterization_plan(args.plan)
+    report = characterize_xyce(
+        plan,
+        command=XyceCommand.real(args.xyce),
+        cache=args.cache,
+        output=args.output,
+        timeout_seconds=args.timeout,
+    )
+    print(f"Xyce characterization {report['cache_key']}: {report['execution_count']} executions")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="simcairn")
     parser.add_argument("--version", action="version", version=f"simcairn {__version__}")
@@ -260,6 +275,17 @@ def _parser() -> argparse.ArgumentParser:
     gf180.add_argument("--expected-comparison-sha256", required=True)
     gf180.add_argument("--pdk-root", required=True)
     gf180.set_defaults(handler=_configure_gf180)
+
+    xyce = subparsers.add_parser(
+        "characterize-xyce",
+        help="run a structured Xyce PVT characterization plan",
+    )
+    xyce.add_argument("plan")
+    xyce.add_argument("--xyce", default="Xyce", help="Xyce executable path")
+    xyce.add_argument("--cache", default=".simcairn-characterization")
+    xyce.add_argument("--output", required=True, help="new report path; never overwritten")
+    xyce.add_argument("--timeout", type=float, default=300.0, help="seconds per execution")
+    xyce.set_defaults(handler=_characterize_xyce)
     return parser
 
 
@@ -274,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
         JournalError,
         Sky130ConfigurationError,
         GF180ConfigurationError,
+        CharacterizationError,
+        XyceError,
         OSError,
         ValueError,
     ) as error:

@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
@@ -520,6 +521,49 @@ def test_repeated_cancellation_while_waiting_cannot_abandon_a_run_lock(tmp_path)
     assert run_lock_state(store.run_directory(run_id)) is None
 
 
+def test_writer_release_retries_transient_windows_style_sharing_violation(tmp_path, monkeypatch):
+    store = ArtifactStore(tmp_path / "sharing-store")
+    writer = StoreWriteLease(store.root)
+    writer.__enter__()
+    original_unlink = Path.unlink
+    blocked = False
+
+    def busy_once(path, *args, **kwargs):
+        nonlocal blocked
+        if not blocked and path.name.startswith("owner-"):
+            blocked = True
+            raise PermissionError("injected sharing violation")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", busy_once)
+    writer.__exit__(None, None, None)
+    assert blocked
+    assert not (store.root / ".locks" / "gc" / "run.lock").exists()
+
+
+def test_run_lock_release_retries_busy_empty_directory_and_allows_reacquire(tmp_path, monkeypatch):
+    run = tmp_path / "run"
+    run.mkdir()
+    lock = RunLock(run)
+    lock.__enter__()
+    original_rmdir = Path.rmdir
+    blocked = False
+
+    def busy_once(path, *args, **kwargs):
+        nonlocal blocked
+        if not blocked and path == run / "run.lock":
+            blocked = True
+            raise PermissionError("injected directory sharing violation")
+        return original_rmdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "rmdir", busy_once)
+    lock.__exit__(None, None, None)
+    assert blocked
+    assert not (run / "run.lock").exists()
+    with RunLock(run):
+        assert (run / "run.lock").is_dir()
+
+
 class SlowAdapter:
     name = "slow"
 
@@ -532,6 +576,50 @@ class SlowAdapter:
 
     def expected_artifacts(self):
         return ("stdout.log", "stderr.log", "metrics.json")
+
+    def collect(self, sandbox, payload):
+        del sandbox, payload
+        raise AdapterError("unreachable")
+
+
+class FloodAdapter:
+    name = "flood"
+
+    def command(self, sandbox, payload):
+        del sandbox, payload
+        return [
+            sys.executable,
+            "-c",
+            "import sys;sys.stdout.buffer.write(bytes([120])*(8*1024*1024+1))",
+        ]
+
+    def collect(self, sandbox, payload):
+        del sandbox, payload
+        raise AdapterError("unreachable")
+
+
+class DescendantAdapter:
+    name = "descendant"
+
+    def __init__(self, sentinel, started):
+        self.sentinel = sentinel
+        self.started = started
+
+    def command(self, sandbox, payload):
+        del sandbox, payload
+        child = "".join(
+            (
+                "import pathlib,sys,time;time.sleep(6);",
+                "pathlib.Path(sys.argv[1]).write_text('orphan')",
+            )
+        )
+        parent = (
+            "import pathlib,subprocess,sys,time;"
+            f"subprocess.Popen([sys.executable,'-c',{child!r},sys.argv[1]],"
+            "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
+            "pathlib.Path(sys.argv[2]).write_text('started');time.sleep(30)"
+        )
+        return [sys.executable, "-c", parent, str(self.sentinel), str(self.started)]
 
     def collect(self, sandbox, payload):
         del sandbox, payload
@@ -555,6 +643,30 @@ def test_simulator_timeout_terminates_subprocess(tmp_path, monkeypatch):
     outcome = asyncio.run(ActivityExecutor(store).execute(activity))
     assert outcome.status == "failed"
     assert "timed out" in outcome.message
+
+
+def test_generic_simulator_stdout_is_bounded_during_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr("simcairn.executor.create_adapter", lambda config: FloodAdapter())
+    outcome = asyncio.run(
+        ActivityExecutor(ArtifactStore(tmp_path / "store")).execute(_simulate_activity())
+    )
+    assert outcome.status == "failed"
+    assert "stdout exceeded 8388608 bytes" in outcome.message
+
+
+def test_generic_simulator_timeout_terminates_descendants(tmp_path, monkeypatch):
+    sentinel = tmp_path / "orphan.txt"
+    started = tmp_path / "started.txt"
+    monkeypatch.setattr(
+        "simcairn.executor.create_adapter", lambda config: DescendantAdapter(sentinel, started)
+    )
+    activity = replace(_simulate_activity(), timeout_seconds=5)
+    outcome = asyncio.run(ActivityExecutor(ArtifactStore(tmp_path / "store")).execute(activity))
+    assert outcome.status == "failed"
+    assert "timed out" in outcome.message
+    assert started.exists()
+    time.sleep(2)
+    assert not sentinel.exists()
 
 
 def test_render_detects_input_changed_after_planning(tmp_path):

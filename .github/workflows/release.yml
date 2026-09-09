@@ -13,10 +13,14 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  RELEASE_PROJECT_NAME: simcairn
+  RELEASE_PROJECT_VERSION: "0.4.0"
+  RELEASE_SYFT_VERSION: "1.51.1"
+
 jobs:
   verify-ci:
     name: Require main ancestry and successful CI
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -28,9 +32,25 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify tag commit is reachable from main
+      - name: Verify the signed tag, trusted main ancestry, and release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) ;;
+            *) echo "release workflow must run from a version tag, not $GITHUB_REF" >&2; exit 1 ;;
+          esac
           git fetch --no-tags origin main
+          git show origin/main:.github/allowed_signers > "$RUNNER_TEMP/allowed_signers"
+          git config gpg.format ssh
+          git config gpg.ssh.allowedSignersFile "$RUNNER_TEMP/allowed_signers"
+          git verify-tag "$GITHUB_REF_NAME"
+          commit_verified="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq '.commit.verification.verified')"
+          commit_reason="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq '.commit.verification.reason')"
+          if [ "$commit_verified" != "true" ]; then
+            echo "release commit signature is not verified (reason: $commit_reason)" >&2
+            exit 1
+          fi
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "release commit is not reachable from origin/main" >&2
             exit 1
@@ -40,7 +60,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           for attempt in $(seq 1 90); do
-            successful="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=100" --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
+            successful="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=100" --jq "[.workflow_runs[] | select(.conclusion == \"success\" and .event == \"push\" and .head_branch == \"main\" and .head_sha == \"$GITHUB_SHA\")] | length")"
             if [ "$successful" -gt 0 ]; then
               echo "verified successful CI workflow for $GITHUB_SHA"
               exit 0
@@ -54,11 +74,9 @@ jobs:
   build:
     name: Build and verify distributions
     needs: verify-ci
-    if: >-
-      ${{ always() && (github.event_name == 'workflow_dispatch' ||
-      needs.verify-ci.result == 'success') }}
+    if: needs.verify-ci.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -88,21 +106,25 @@ jobs:
           uv run --frozen pytest --cov=simcairn --cov-branch --cov-report=term-missing
       - name: Verify tag matches package version
         env:
-          RELEASE_EVENT: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.ref_name }}
+          EXPECTED_VERSION: ${{ env.RELEASE_PROJECT_VERSION }}
         run: |
-          uv run --frozen python - <<'PY'
+          uv run --frozen python -I - <<'PY'
           import os
           import tomllib
           from pathlib import Path
 
           version = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
-          if os.environ["RELEASE_EVENT"] == "push":
-              expected = f"v{version}"
-              if os.environ["RELEASE_TAG"] != expected:
-                  raise SystemExit(
-                      f"release tag {os.environ['RELEASE_TAG']!r} does not match {expected!r}"
-                  )
+          if version != os.environ["EXPECTED_VERSION"]:
+              raise SystemExit(
+                  f"project version {version!r} does not match release workflow "
+                  f"version {os.environ['EXPECTED_VERSION']!r}"
+              )
+          expected = f"v{version}"
+          if os.environ["RELEASE_TAG"] != expected:
+              raise SystemExit(
+                  f"release tag {os.environ['RELEASE_TAG']!r} does not match {expected!r}"
+              )
           print(f"validated project version {version}")
           PY
       - name: Fix build timestamp to the source commit
@@ -114,11 +136,12 @@ jobs:
       - name: Validate distribution metadata and shape
         run: |
           uv run --frozen python -m twine check --strict dist/*
-          uv run --frozen python - <<'PY'
+          uv run --frozen python -I - <<'PY'
           import tarfile
           import zipfile
           import hashlib
           import json
+          import os
           from pathlib import Path
 
           from simcairn.distribution_audit import audit_sdist, audit_wheel
@@ -130,9 +153,17 @@ jobs:
           if len(wheels) != 1 or len(sdists) != 1 or len(tuple(Path("dist").iterdir())) != 2:
               raise SystemExit("expected exactly one wheel and one .tar.gz source distribution")
           with tarfile.open(sdists[0], "r:gz") as archive:
-              names = audit_sdist(archive)
+              names = audit_sdist(
+                  archive,
+                  expected_root=f"simcairn-{os.environ['RELEASE_PROJECT_VERSION']}",
+              )
           required_source = {
+              ".github/allowed_signers",
+              ".github/workflows/ci.yml",
+              ".github/workflows/dco.yml",
+              ".github/workflows/release.yml",
               "CITATION.cff",
+              "benchmarks/benchmark_xyce_characterization.py",
               "benchmarks/manifest.json",
               "benchmarks/ciel-assets.json",
               "benchmarks/gf180-manifest.json",
@@ -151,12 +182,33 @@ jobs:
               "benchmarks/verify_reference.py",
               "docs/validation.md",
               "docs/real-reference-replay.md",
+              "docs/xyce-characterization.md",
               "examples/rc_pvt/offline-golden.json",
+              "examples/xyce_sram/README.md",
+              "examples/xyce_sram/characterization.json",
+              "examples/xyce_sram/sram_like.cir.tmpl",
+              "src/simcairn/adapters.py",
+              "src/simcairn/characterization.py",
+              "src/simcairn/dco.py",
               "src/simcairn/distribution_audit.py",
+              "src/simcairn/executor.py",
+              "src/simcairn/manifest.py",
+              "src/simcairn/model.py",
+              "src/simcairn/planner.py",
+              "src/simcairn/release_artifacts.py",
               "src/simcairn/provenance.py",
               "src/simcairn/pdk_replay.py",
               "src/simcairn/reference.py",
               "src/simcairn/reference_replay.py",
+              "src/simcairn/xyce.py",
+              "tests/fixtures/fake_xyce.py",
+              "tests/test_characterization.py",
+              "tests/test_dco.py",
+              "tests/test_manifest_sweeps.py",
+              "tests/test_standalone_workflows.py",
+              "tests/test_workflow_security.py",
+              "tests/test_xyce.py",
+              "uv.lock",
           }
           if missing := required_source - names:
               raise SystemExit(f"source distribution is missing: {sorted(missing)}")
@@ -175,7 +227,15 @@ jobs:
                   name.removeprefix("simcairn/"): hashlib.sha256(archive.read(name)).hexdigest()
                   for name in python_names
               }
-          required_wheel = {"simcairn/_version.py", "simcairn/py.typed"}
+          required_wheel = {
+              "simcairn/_version.py",
+              "simcairn/characterization.py",
+              "simcairn/dco.py",
+              "simcairn/distribution_audit.py",
+              "simcairn/py.typed",
+              "simcairn/release_artifacts.py",
+              "simcairn/xyce.py",
+          }
           if missing := required_wheel - wheel_names:
               raise SystemExit(f"wheel is missing: {sorted(missing)}")
           logical_tree = {
@@ -201,16 +261,30 @@ jobs:
                       f"release wheel {field} does not match the checked-out source identity"
                   )
           PY
-      - name: Install wheel and smoke-import package
+      - name: Re-test the audited source distribution with frozen dependencies
+        run: |
+          source_test_root="$(mktemp -d "$RUNNER_TEMP/sdist-test.XXXXXX")"
+          tar -xzf "dist/simcairn-$RELEASE_PROJECT_VERSION.tar.gz" \
+            --directory "$source_test_root" --no-same-owner --no-same-permissions
+          (
+            cd "$source_test_root/simcairn-$RELEASE_PROJECT_VERSION"
+            uv sync --frozen --extra dev
+            uv run --frozen pytest
+          )
+      - name: Install wheel and smoke-check metadata, CLI, and manifest planning
         run: |
           python -m venv .release-smoke
           .release-smoke/bin/python -m pip install --disable-pip-version-check --no-deps dist/*.whl
           .release-smoke/bin/python -I - <<'PY'
           import importlib.metadata
+          import json
           import subprocess
           import sys
+          import tempfile
+          from pathlib import Path
 
           import simcairn
+          from simcairn.adapters import AdapterError, XyceAdapter
           from simcairn.provenance import current_producer_identity
 
           installed = importlib.metadata.version("simcairn")
@@ -224,12 +298,111 @@ jobs:
           ).strip()
           if output != f"simcairn {installed}":
               raise SystemExit(f"unexpected CLI version: {output!r}")
+          cli = str(Path(".release-smoke/bin/simcairn").resolve())
+          direct = subprocess.check_output([cli, "--version"], text=True).strip()
+          if direct != f"simcairn {installed}":
+              raise SystemExit(f"unexpected installed launcher version: {direct!r}")
+          validated = subprocess.check_output(
+              [cli, "validate", "examples/rc_pvt/offline-mock.toml"], text=True
+          ).strip()
+          if not validated.startswith("valid manifest: 97 activities, plan "):
+              raise SystemExit(f"installed CLI did not compile the release manifest: {validated!r}")
+          with tempfile.TemporaryDirectory() as raw:
+              sandbox = Path(raw)
+              (sandbox / "xyce.log").write_text(
+                  " ***** Measure Functions ***** \n\n"
+                  "DELAY = 1.25e-9 for AT = 1e-9\n\n"
+                  "***** Total Simulation Solvers Run Time: 0.001 seconds\n",
+                  encoding="utf-8",
+              )
+              (sandbox / "xyce_output.mt0").write_text("DELAY = 1.25e-9\n", encoding="utf-8")
+              XyceAdapter("not-invoked", "tran").collect(
+                  sandbox, {"measure_fields": ["delay"]}
+              )
+              if json.loads((sandbox / "metrics.json").read_text(encoding="utf-8")) != {
+                  "delay": 1.25e-9
+              }:
+                  raise SystemExit("installed Xyce adapter changed a verified scalar measurement")
+          with tempfile.TemporaryDirectory() as raw:
+              sandbox = Path(raw)
+              (sandbox / "xyce.log").write_text(
+                  "***** Total Simulation Solvers Run Time: 0.001 seconds\n"
+                  "***** End of Xyce(TM) Simulation\n",
+                  encoding="utf-8",
+              )
+              (sandbox / "xyce_output.mt0").write_text("DELAY = 0\n", encoding="utf-8")
+              try:
+                  XyceAdapter("not-invoked", "tran").collect(
+                      sandbox, {"measure_fields": ["delay"]}
+                  )
+              except AdapterError as error:
+                  if "positive success evidence" not in str(error):
+                      raise
+              else:
+                  raise SystemExit(
+                      "installed Xyce adapter accepted a numeric default without success evidence"
+                  )
           PY
-      - name: Upload verified distributions
+          site_packages="$(.release-smoke/bin/python -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+          installation_root="$(realpath .release-smoke)"
+          workspace_root="$(realpath "$GITHUB_WORKSPACE")"
+          if [ "$installation_root" != "$workspace_root/.release-smoke" ]; then
+            echo "release virtual environment resolved outside its expected root" >&2
+            exit 1
+          fi
+          case "$site_packages" in
+            "$installation_root"/*) ;;
+            *) echo "installed site-packages escaped the release virtual environment" >&2; exit 1 ;;
+          esac
+          echo "RELEASE_INSTALLATION_ROOT=$installation_root" >> "$GITHUB_ENV"
+          echo "RELEASE_SITE_PACKAGES=$site_packages" >> "$GITHUB_ENV"
+      - name: Generate SPDX software bill of materials
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        env:
+          SYFT_CHECK_FOR_APP_UPDATE: "false"
+          SYFT_FILE_METADATA_SELECTION: all
+          SYFT_SOURCE_NAME: ${{ env.RELEASE_PROJECT_NAME }}
+          SYFT_SOURCE_VERSION: ${{ env.RELEASE_PROJECT_VERSION }}
+        with:
+          path: .release-smoke
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+          syft-version: v${{ env.RELEASE_SYFT_VERSION }}
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Validate the installed-wheel SBOM and release checksums
+        run: |
+          uv run --frozen python -m simcairn.release_artifacts bind-installed-wheel \
+            --sbom dist/SBOM.spdx.json \
+            --site-packages "$RELEASE_SITE_PACKAGES" \
+            --installation-root "$RELEASE_INSTALLATION_ROOT" \
+            --expected-external-path "bin/simcairn" \
+            --wheel "dist/simcairn-$RELEASE_PROJECT_VERSION-py3-none-any.whl" \
+            --name "$RELEASE_PROJECT_NAME" \
+            --version "$RELEASE_PROJECT_VERSION"
+          uv run --frozen python -m simcairn.release_artifacts validate-sbom \
+            --sbom dist/SBOM.spdx.json \
+            --name "$RELEASE_PROJECT_NAME" \
+            --version "$RELEASE_PROJECT_VERSION" \
+            --syft-version "$RELEASE_SYFT_VERSION"
+          uv run --frozen python -m simcairn.release_artifacts write-checksums \
+            --directory dist \
+            --name "$RELEASE_PROJECT_NAME" \
+            --version "$RELEASE_PROJECT_VERSION"
+          uv run --frozen python -m simcairn.release_artifacts verify-release \
+            --directory dist \
+            --name "$RELEASE_PROJECT_NAME" \
+            --version "$RELEASE_PROJECT_VERSION" \
+            --syft-version "$RELEASE_SYFT_VERSION"
+      - name: Upload verified distributions and release evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-distributions
-          path: dist/*
+          path: |
+            dist/simcairn-${{ env.RELEASE_PROJECT_VERSION }}-py3-none-any.whl
+            dist/simcairn-${{ env.RELEASE_PROJECT_VERSION }}.tar.gz
+            dist/SBOM.spdx.json
+            dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 7
 
@@ -244,15 +417,26 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - name: Check out release validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Download verified distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-distributions
           path: dist
+      - name: Re-verify downloaded release assets
+        run: >-
+          python -I -S src/simcairn/release_artifacts.py verify-release
+          --directory dist
+          --name "$RELEASE_PROJECT_NAME"
+          --version "$RELEASE_PROJECT_VERSION"
+          --syft-version "$RELEASE_SYFT_VERSION"
       - name: Attest verified distributions
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/*
+          subject-checksums: dist/SHA256SUMS
 
   github-release:
     name: Create GitHub release
@@ -265,23 +449,39 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out release validation helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Download verified distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-distributions
           path: dist
+      - name: Re-verify downloaded release assets
+        run: >-
+          python -I -S src/simcairn/release_artifacts.py verify-release
+          --directory dist
+          --name "$RELEASE_PROJECT_NAME"
+          --version "$RELEASE_PROJECT_VERSION"
+          --syft-version "$RELEASE_SYFT_VERSION"
       - name: Create release exactly once
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          resolved_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
-          if [ "$resolved_sha" != "$GITHUB_SHA" ]; then
-            echo "tag moved during release: expected $GITHUB_SHA, resolved $resolved_sha" >&2
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+          if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "release tag moved: expected $GITHUB_SHA, resolved $tag_sha" >&2
             exit 1
           fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "GitHub release $RELEASE_TAG already exists; refusing to replace its assets."
             exit 1
           fi
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes --repo "$GITHUB_REPOSITORY"
+          gh release create "$RELEASE_TAG" \
+            "dist/simcairn-$RELEASE_PROJECT_VERSION-py3-none-any.whl" \
+            "dist/simcairn-$RELEASE_PROJECT_VERSION.tar.gz" \
+            dist/SBOM.spdx.json \
+            dist/SHA256SUMS \
+            --verify-tag --generate-notes --repo "$GITHUB_REPOSITORY"
