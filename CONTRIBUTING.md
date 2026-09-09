@@ -11,6 +11,26 @@ pytest --cov=simcairn --cov-report=term-missing
 python -m build
 ```
 
+For release verification, use the frozen development environment and the exact
+quality commands from CI:
+
+```bash
+uv sync --frozen --extra dev
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen mypy --python-version 3.11 --platform linux src
+uv run --frozen mypy --python-version 3.11 --platform darwin src
+uv run --frozen mypy --python-version 3.11 --platform win32 src
+uv run --frozen bandit -q -r src
+uv run --frozen pytest --cov=simcairn --cov-branch --cov-fail-under=90
+```
+
+Type-checking a platform from another OS validates the static API boundary; it
+does not execute that OS's process-management code. Native timeout, cancellation,
+descendant cleanup and filesystem tests must still pass on the matching CI
+runner. Do not replace those checks with an ignored annotation or a rerun that
+conceals an unexplained failure.
+
 ## Requirements
 
 - Keep runtime dependencies at zero unless a focused issue demonstrates why a
@@ -51,7 +71,11 @@ publishing its result. Retarget edits rerun the workflow and reset the event hea
 pending. Because a `pull_request_target` workflow cannot trust code introduced by its
 own bootstrap pull request, manually review every bootstrap commit's sign-off, merge
 the verifier, confirm `DCO / commits` on a follow-up pull request, and only then make
-that context required on protected `main`. Do not publish 0.4.0 before this rollout.
+that context required on protected `main`. Do not publish before this rollout.
+The standalone verifier runs with `python -I -S`: it deliberately has neither
+the project environment nor user/site startup hooks. Keep it standard-library
+only, and test its actual invocation in an unrelated directory. The signed
+commit requirement and author-matching DCO sign-off are separate checks.
 
 ## Release integrity
 
