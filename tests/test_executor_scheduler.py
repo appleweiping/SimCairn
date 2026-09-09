@@ -723,7 +723,7 @@ def test_offline_pvt_workflow_emits_strict_regression_bundle(tmp_path):
     manifest = load_manifest(EXAMPLE.parent.parent / "rc_pvt" / "offline-mock.toml")
     store = ArtifactStore(tmp_path / "pvt-store")
     report = Runner(store.root).run(manifest)
-    assert report.status == "succeeded"
+    assert report.status == "succeeded", report.as_dict()
     plan = store.load_plan(report.run_id)
     aggregate = plan.activities[-1]
     path = store.cache_path(aggregate.id) / "files" / "regression-bundle.json"
