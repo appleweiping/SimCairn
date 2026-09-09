@@ -67,6 +67,7 @@ _MAX_CACHE_MANIFEST_BYTES = 8 * 1024 * 1024
 _MAX_CACHE_REPORT_BYTES = 256 * 1024 * 1024
 _PROBE_TIMEOUT_SECONDS = 10.0
 _TERMINATE_GRACE_SECONDS = 2.0
+_WINDOWS_CREATE_SUSPENDED = 0x00000004
 _WINDOWS_CREATE_NEW_PROCESS_GROUP = 0x00000200
 _LINUX_RENAME_NOREPLACE = 1
 _DARWIN_RENAME_EXCL = 0x00000004
@@ -247,6 +248,95 @@ def _attach_windows_job(process_id: int) -> int | None:  # pragma: no cover - na
         kernel32.CloseHandle(job)
         raise
     return int(job)
+
+
+def _resume_windows_process(process_id: int) -> None:  # pragma: no cover - native OS glue
+    """Resume the unique primary thread of a newly created suspended process."""
+
+    if sys.platform != "win32":
+        raise XyceExecutionError("Windows suspended-process actions are unavailable")
+    import ctypes
+    from ctypes import wintypes
+
+    class _ThreadEntry(ctypes.Structure):
+        _fields_ = [
+            ("size", wintypes.DWORD),
+            ("usage_count", wintypes.DWORD),
+            ("thread_id", wintypes.DWORD),
+            ("owner_process_id", wintypes.DWORD),
+            ("base_priority", wintypes.LONG),
+            ("priority_delta", wintypes.LONG),
+            ("flags", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Thread32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ThreadEntry)]
+    kernel32.Thread32First.restype = wintypes.BOOL
+    kernel32.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ThreadEntry)]
+    kernel32.Thread32Next.restype = wintypes.BOOL
+    kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenThread.restype = wintypes.HANDLE
+    kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+    kernel32.ResumeThread.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+    if snapshot == ctypes.c_void_p(-1).value:
+        raise XyceExecutionError(
+            f"cannot snapshot suspended Windows process threads: {ctypes.get_last_error()}"
+        )
+    try:
+        entry = _ThreadEntry()
+        entry.size = ctypes.sizeof(entry)
+        ctypes.set_last_error(0)
+        available = bool(kernel32.Thread32First(snapshot, ctypes.byref(entry)))
+        if not available and ctypes.get_last_error() != 18:  # ERROR_NO_MORE_FILES
+            raise XyceExecutionError(
+                f"cannot enumerate suspended Windows process threads: {ctypes.get_last_error()}"
+            )
+        thread_ids: list[int] = []
+        required_size = _ThreadEntry.owner_process_id.offset + ctypes.sizeof(wintypes.DWORD)
+        while available:
+            if entry.size < required_size:
+                raise XyceExecutionError("Windows returned an incomplete thread snapshot entry")
+            if entry.owner_process_id == process_id:
+                thread_ids.append(int(entry.thread_id))
+            entry.size = ctypes.sizeof(entry)
+            ctypes.set_last_error(0)
+            available = bool(kernel32.Thread32Next(snapshot, ctypes.byref(entry)))
+        if ctypes.get_last_error() != 18:  # ERROR_NO_MORE_FILES
+            raise XyceExecutionError(
+                f"cannot enumerate suspended Windows process threads: {ctypes.get_last_error()}"
+            )
+    finally:
+        kernel32.CloseHandle(snapshot)
+
+    if len(thread_ids) != 1:
+        raise XyceExecutionError(
+            "cannot identify the unique primary thread of the suspended Windows process: "
+            f"found {len(thread_ids)}"
+        )
+    thread = kernel32.OpenThread(0x0002, False, thread_ids[0])  # THREAD_SUSPEND_RESUME
+    if not thread:
+        raise XyceExecutionError(
+            f"cannot open suspended Windows process thread: {ctypes.get_last_error()}"
+        )
+    try:
+        previous_suspend_count = int(kernel32.ResumeThread(thread))
+        if previous_suspend_count == 0xFFFFFFFF:
+            raise XyceExecutionError(
+                f"cannot resume suspended Windows process thread: {ctypes.get_last_error()}"
+            )
+        if previous_suspend_count != 1:
+            raise XyceExecutionError(
+                "suspended Windows process thread had an unexpected suspend count: "
+                f"{previous_suspend_count}"
+            )
+    finally:
+        kernel32.CloseHandle(thread)
 
 
 def _windows_job_action(  # pragma: no cover - native OS glue
@@ -504,7 +594,7 @@ async def _run_process(
     started = time.monotonic()
     try:
         platform_options: dict[str, Any] = (
-            {"creationflags": _WINDOWS_CREATE_NEW_PROCESS_GROUP}
+            {"creationflags": (_WINDOWS_CREATE_NEW_PROCESS_GROUP | _WINDOWS_CREATE_SUSPENDED)}
             if os.name == "nt"
             else {"start_new_session": True}
         )
@@ -519,12 +609,16 @@ async def _run_process(
         )
     except OSError as error:
         raise XyceExecutionError(f"cannot launch {process_name}: {error}") from error
+    windows_job: int | None = None
     try:
         windows_job = _attach_windows_job(process.pid)
+        if windows_job is not None:
+            _resume_windows_process(process.pid)
     except BaseException:
-        with contextlib.suppress(ProcessLookupError):
-            process.kill()
-        await process.wait()
+        try:
+            await _terminate(process, windows_job)
+        finally:
+            _windows_job_action(windows_job, terminate=False)
         raise
     # PIPE above establishes these asyncio transport invariants.
     assert process.stdout is not None  # nosec B101

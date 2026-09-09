@@ -13,6 +13,16 @@ run count, and terminates the process tree on timeout or cancellation. Xyce
 [Xyce documentation](https://xyce.sandia.gov/documentation-tutorials/) and
 [7.10 Reference Guide](https://xyce.sandia.gov/download/2068/?tmstv=1754510749).
 
+On Windows, the target is created suspended, assigned to a kill-on-close job,
+and only then resumed. A fast target therefore cannot exit or launch descendants
+before assignment. Assignment or resume failure terminates and reaps the target;
+native tests also cover cancellation with a descendant already running. This
+uses the documented [suspended-process/job sequence](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812),
+not atomic process creation inside a job: abrupt termination of the parent
+between creation and assignment can still leave a suspended orphan. It is
+process-tree cleanup for normally executing parent code, not an OS sandbox or
+a guarantee against every parent crash.
+
 ## Synthetic example
 
 The checked-in [`examples/xyce_sram`](../examples/xyce_sram) circuit is an

@@ -38,7 +38,14 @@ def finished_store(tmp_path_factory) -> ArtifactStore:
     root = tmp_path_factory.mktemp("cairn") / "store"
     store = ArtifactStore(root)
     report = Runner(store.root).run(load_manifest(MANIFEST))
-    assert report.status == "succeeded"
+    if report.status != "succeeded":
+        pytest.fail(
+            "\n".join(
+                f"{item.activity_id}: {item.status}: {item.message}"
+                for item in report.outcomes
+                if item.status == "failed"
+            )
+        )
     return store
 
 
