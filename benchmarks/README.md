@@ -26,3 +26,11 @@ allowlist in `ciel-assets.json`. Reports are temporary workflow artifacts; the
 workflow has no write permission and no path points at the checked-in results.
 See [`docs/real-reference-replay.md`](../docs/real-reference-replay.md) for the
 trust anchors, evidence boundary, and manual procedure.
+
+`benchmark_xyce_characterization.py` measures strict JSON validation and deck
+compilation for the synthetic SRAM-like plan. It does not invoke a simulator or
+report physical performance:
+
+```bash
+python benchmarks/benchmark_xyce_characterization.py --iterations 100
+```

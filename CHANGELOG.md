@@ -2,7 +2,47 @@
 
 All notable changes are documented here. Versions follow Semantic Versioning.
 
-## Unreleased
+## [0.4.0] - 2026-09-08
+
+### Added
+
+- A real, argv-only Xyce executable adapter and a strict PVT characterization API/CLI covering
+  operating-point, DC, AC, transient and noise analyses.
+- Content-bound model/waveform inputs, deterministic characterization cache keys, normalized
+  Xyce/ngspice trace tables, no-clobber reports and complete provenance artifacts.
+- An original synthetic SRAM-like example and a non-simulation plan/render benchmark.
+
+### Safety
+
+- Content-addressed characterization publishers now take a nonce-owned per-key claim and use
+  native atomic no-replace rename operations; even a non-cooperating local racer cannot have
+  an existing destination replaced.
+- Pull requests require an author-matching DCO sign-off on every commit. Releases require an
+  SSH-signed annotated tag from the trusted-main signer policy and an exact successful main-push
+  CI run. The pinned Syft SPDX 2.3 release profile binds the isolated wheel RECORD and launcher;
+  an exact four-asset set is checksum-verified before provenance and publication.
+- Source distributions carry the frozen dependency lock and trusted workflow evidence and are
+  safely unpacked and fully retested after their archive shape passes validation.
+- Xyce stdout, stderr, logs, tables, rows, columns, run count and execution time are bounded;
+  timeout, cancellation and overflow terminate and reap the process tree.
+- External include/library/file references are transitively declared and hashed. Cache hits
+  revalidate confined artifacts, execution identity and normalized content from the raw table
+  before reuse. Plan, deck and recursive inputs share one immutable execution snapshot.
+- Trace probes require dimensionally correct units, DC evidence must contain its observed axis,
+  and all simulator adapters share bounded output capture and process-tree cleanup.
+- Structured DC plans now require a physical `axis_expression` that is emitted by `.PRINT` and
+  matched exactly during normalization. Manifest Xyce runs bind `measure_analysis` and select
+  the documented `.mt0`, `.ms0`, or `.ma0` output family without filesystem guessing.
+- Manifest Xyce runs require every requested result to have unique, finite and numerically
+  consistent positive evidence in the complete `Measure Functions` log section. Explicit
+  `FAILED` diagnostics, suppressed/ambiguous evidence and step-indexed scalar output fail closed,
+  so a numeric `MEASFAIL=0 DEFAULT_VAL=0` value cannot be published as measured cache evidence.
+  The scalar-adapter identity was advanced so caches from the earlier acceptance profile are not
+  reused.
+- DCO pagination is unique, count-bound and required to terminate at the exact pull-request head;
+  the trusted-base gate also binds base repository/ref/SHA and resets status on retarget edits.
+- Controlled executable fixtures carry a distinct evidence class and cannot masquerade as real
+  circuit results.
 
 ## [0.3.0] - 2026-09-07
 

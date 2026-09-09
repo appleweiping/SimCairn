@@ -29,6 +29,7 @@ produced a result.
 - Recovery of an incomplete final journal record and replay of verified cache.
 - A deterministic RC subprocess for examples and CI.
 - An ngspice batch adapter for decks that emit requested `.measure` values.
+- A bounded Xyce adapter and strict OP/DC/AC/transient/noise PVT characterization plans.
 - Offline, content-pinned SKY130A and GF180MCU 27-point PVT materializers.
 - Stable JSON and CSV result collection.
 - Store survey, whole-store verification, and a garbage collector that reports
@@ -156,7 +157,10 @@ field = "cutoff_hz"
 Supported adapters are:
 
 - `mock-rc`, the deterministic example subprocess;
-- `ngspice`, which invokes `ngspice -b -o ngspice_output.log deck.sp`.
+- `ngspice`, which invokes `ngspice -b -o ngspice_output.log deck.sp`;
+- `xyce`, which invokes `Xyce -l xyce.log -o xyce_output deck.sp` for scalar `.MEASURE`
+  activities in the standard manifest graph. Set `measure_analysis` to the deck's single
+  measurement family (`tran`, `dc`, `ac`, or `noise`).
 
 For ngspice, set `executable` when it is not discoverable as `ngspice`:
 
@@ -171,10 +175,30 @@ The adapter fingerprints the normalized `ngspice-N[.N...]` token from the
 Requested measure fields are parsed from `name = numeric_value` lines in
 ngspice's batch log. Tests do not require ngspice to be installed.
 
+The manifest Xyce adapter probes `Xyce -v`, binds the executable/command hash and
+declared analysis family, rechecks that identity before and after each run, and
+strictly parses requested finite values from Xyce's corresponding `.mt0`, `.ms0`,
+or `.ma0` measurement file. It never guesses among files left by another analysis.
+Each requested value must also have one finite, numerically identical success line
+in the single complete `***** Measure Functions *****` section of `xyce.log`.
+Requested `name = FAILED` diagnostics in stdout, stderr, or the log fail the
+activity. Missing or ambiguous positive evidence also fails, so
+`MEASPRINT=NONE MEASOUT=1 MEASFAIL=0 DEFAULT_VAL=0` cannot turn a failed
+measurement into valid cache evidence. The scalar adapter rejects `.STEP` because
+Xyce writes one indexed measurement file per step; express sweeps in the manifest
+so every point remains a separate identity-bound activity.
+
 An optional `[simulator.environment]` table supplies explicit child-process
 environment values. SimCairn otherwise passes only basic executable and
 temporary-directory variables required by the operating system. Ambient API
 tokens and unrelated secrets are not inherited.
+
+For structured process-voltage-temperature work, `characterize-xyce` compiles
+strict OP, DC, AC, transient and noise analyses and records content-addressed
+evidence. The original synthetic six-transistor example covers three corners
+without bundling a PDK. Controlled test executables are labeled nonphysical and
+cannot be relabelled as real. See
+[`docs/xyce-characterization.md`](docs/xyce-characterization.md).
 
 ### Template and inputs
 
@@ -235,6 +259,8 @@ simcairn store-gc [--store PATH] [--keep-runs N] [--apply]
                   [--include-unreadable] [--keep-work]
 simcairn configure-sky130 DECISION OUTPUT [TRUST ANCHORS] --pdk-root PATH
 simcairn configure-gf180 DECISION OUTPUT [TRUST ANCHORS] --pdk-root PATH
+simcairn characterize-xyce PLAN --xyce Xyce --cache PATH --output REPORT
+                             [--timeout SECONDS]
 ```
 
 Exit status is 0 for success, 1 for a completed failed run or cache miss from
@@ -335,9 +361,12 @@ render templates and copies must match their input digests; simulator adapter,
 executable, environment, and requested fields must match the cache key; and
 extract/aggregate measures must match their sweep point and identity.
 
-Publishing uses a temporary directory followed by an atomic rename. The cache
-manifest records every artifact's relative name, size, and SHA-256. Corrupt or
-missing artifacts are cache misses.
+Publishing uses a temporary directory, a nonce-owned per-key claim, and a native
+atomic no-replace rename. A non-cooperating local process that creates the final
+name wins the name but cannot have its entry overwritten; invalid winning data
+fails closed. Empty claim directories are retained and reused to avoid an ABA
+cleanup race. The cache manifest records every artifact's relative name, size,
+and SHA-256. Corrupt or missing artifacts are cache misses.
 
 Each run stores an immutable `plan.json` and append-only `events.jsonl`. Saved
 plans are strictly decoded on resume: unknown or type-coerced fields,
@@ -370,6 +399,15 @@ configuration rather than passive data. The implementation still enforces:
 SimCairn does not provide an operating-system sandbox. Run untrusted simulator
 binaries or hostile decks inside an appropriate container or restricted user
 account. See [SECURITY.md](SECURITY.md).
+
+Release tags are checked as SSH-signed annotated tags against the committed
+signer allowlist. Published wheel and source archives are accompanied by a
+pinned Syft SPDX 2.3 SBOM whose release profile binds every installed RECORD file
+and the console launcher, self-checked `SHA256SUMS`, and GitHub build-provenance
+attestations. The SBOM check is release-specific rather than a general SPDX
+conformance validator. The audited source archive is also rebuilt with its frozen
+dependency lock and retested before publication. Contribution commits require
+author-matching DCO trailers; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Scope
 

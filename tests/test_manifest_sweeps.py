@@ -49,6 +49,7 @@ field = "cutoff_hz"
 def test_valid_manifest_and_product_plan(tmp_path):
     manifest = load_manifest(_project(tmp_path))
     assert manifest.simulator.adapter == "mock-rc"
+    assert manifest.simulator.measure_analysis is None
     assert manifest.measures[0].unit == "1"
     assert manifest.template.deck == (tmp_path / "deck.sp.tmpl").resolve()
     points = expand_sweep(manifest.sweep)

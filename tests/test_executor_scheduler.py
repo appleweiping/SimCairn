@@ -3,8 +3,8 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import replace
-from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -55,19 +55,17 @@ def test_real_mock_subprocess_run_collect_and_cache(tmp_path):
 
 def test_collect_strictly_rejects_ambiguous_results_json(tmp_path):
     runner = Runner(tmp_path / "store")
-    report = runner.run(load_manifest(EXAMPLE))
-    plan = runner.store.load_plan(report.run_id)
-    target = runner.store.cache_path(plan.activities[-1].id)
-    results = target / "files" / "results.json"
-    results.write_text('[{"R":"1k","R":"2k"}]\n', encoding="utf-8")
-    manifest_path = target / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    record = next(item for item in manifest["artifacts"] if item["name"] == "results.json")
-    content = results.read_bytes()
-    record.update(size=len(content), sha256=sha256(content).hexdigest())
-    manifest_path.write_text(canonical_json(manifest), encoding="utf-8")
+    plan = compile_plan(load_manifest(EXAMPLE))
+    run_id, _directory = runner.store.create_run(plan)
+    aggregate = plan.activities[-1]
+    sandbox = tmp_path / "aggregate"
+    sandbox.mkdir()
+    (sandbox / "results.json").write_text('[{"R":"1k","R":"2k"}]\n', encoding="utf-8")
+    (sandbox / "results.csv").write_text("R\n1k\n", encoding="utf-8")
+    (sandbox / "regression-bundle.json").write_text("{}\n", encoding="utf-8")
+    runner.store.publish(aggregate, sandbox)
     with pytest.raises(StoreError, match="duplicate"):
-        runner.collect(report.run_id)
+        runner.collect(run_id)
 
 
 def test_collect_rejects_an_unpublished_aggregate_without_running_the_plan(tmp_path):
@@ -520,6 +518,49 @@ def test_repeated_cancellation_while_waiting_cannot_abandon_a_run_lock(tmp_path)
     assert run_lock_state(store.run_directory(run_id)) is None
 
 
+def test_writer_release_retries_transient_windows_style_sharing_violation(tmp_path, monkeypatch):
+    store = ArtifactStore(tmp_path / "sharing-store")
+    writer = StoreWriteLease(store.root)
+    writer.__enter__()
+    original_unlink = Path.unlink
+    blocked = False
+
+    def busy_once(path, *args, **kwargs):
+        nonlocal blocked
+        if not blocked and path.name.startswith("owner-"):
+            blocked = True
+            raise PermissionError("injected sharing violation")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", busy_once)
+    writer.__exit__(None, None, None)
+    assert blocked
+    assert not (store.root / ".locks" / "gc" / "run.lock").exists()
+
+
+def test_run_lock_release_retries_busy_empty_directory_and_allows_reacquire(tmp_path, monkeypatch):
+    run = tmp_path / "run"
+    run.mkdir()
+    lock = RunLock(run)
+    lock.__enter__()
+    original_rmdir = Path.rmdir
+    blocked = False
+
+    def busy_once(path, *args, **kwargs):
+        nonlocal blocked
+        if not blocked and path == run / "run.lock":
+            blocked = True
+            raise PermissionError("injected directory sharing violation")
+        return original_rmdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "rmdir", busy_once)
+    lock.__exit__(None, None, None)
+    assert blocked
+    assert not (run / "run.lock").exists()
+    with RunLock(run):
+        assert (run / "run.lock").is_dir()
+
+
 class SlowAdapter:
     name = "slow"
 
@@ -532,6 +573,50 @@ class SlowAdapter:
 
     def expected_artifacts(self):
         return ("stdout.log", "stderr.log", "metrics.json")
+
+    def collect(self, sandbox, payload):
+        del sandbox, payload
+        raise AdapterError("unreachable")
+
+
+class FloodAdapter:
+    name = "flood"
+
+    def command(self, sandbox, payload):
+        del sandbox, payload
+        return [
+            sys.executable,
+            "-c",
+            "import sys;sys.stdout.buffer.write(bytes([120])*(8*1024*1024+1))",
+        ]
+
+    def collect(self, sandbox, payload):
+        del sandbox, payload
+        raise AdapterError("unreachable")
+
+
+class DescendantAdapter:
+    name = "descendant"
+
+    def __init__(self, sentinel, started):
+        self.sentinel = sentinel
+        self.started = started
+
+    def command(self, sandbox, payload):
+        del sandbox, payload
+        child = "".join(
+            (
+                "import pathlib,sys,time;time.sleep(6);",
+                "pathlib.Path(sys.argv[1]).write_text('orphan')",
+            )
+        )
+        parent = (
+            "import pathlib,subprocess,sys,time;"
+            f"subprocess.Popen([sys.executable,'-c',{child!r},sys.argv[1]],"
+            "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
+            "pathlib.Path(sys.argv[2]).write_text('started');time.sleep(30)"
+        )
+        return [sys.executable, "-c", parent, str(self.sentinel), str(self.started)]
 
     def collect(self, sandbox, payload):
         del sandbox, payload
@@ -555,6 +640,30 @@ def test_simulator_timeout_terminates_subprocess(tmp_path, monkeypatch):
     outcome = asyncio.run(ActivityExecutor(store).execute(activity))
     assert outcome.status == "failed"
     assert "timed out" in outcome.message
+
+
+def test_generic_simulator_stdout_is_bounded_during_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr("simcairn.executor.create_adapter", lambda config: FloodAdapter())
+    outcome = asyncio.run(
+        ActivityExecutor(ArtifactStore(tmp_path / "store")).execute(_simulate_activity())
+    )
+    assert outcome.status == "failed"
+    assert "stdout exceeded 8388608 bytes" in outcome.message
+
+
+def test_generic_simulator_timeout_terminates_descendants(tmp_path, monkeypatch):
+    sentinel = tmp_path / "orphan.txt"
+    started = tmp_path / "started.txt"
+    monkeypatch.setattr(
+        "simcairn.executor.create_adapter", lambda config: DescendantAdapter(sentinel, started)
+    )
+    activity = replace(_simulate_activity(), timeout_seconds=5)
+    outcome = asyncio.run(ActivityExecutor(ArtifactStore(tmp_path / "store")).execute(activity))
+    assert outcome.status == "failed"
+    assert "timed out" in outcome.message
+    assert started.exists()
+    time.sleep(2)
+    assert not sentinel.exists()
 
 
 def test_render_detects_input_changed_after_planning(tmp_path):

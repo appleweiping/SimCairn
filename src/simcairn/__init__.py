@@ -1,13 +1,55 @@
 """SimCairn public API."""
 
 from simcairn._version import __version__
-from simcairn.api import Runner, compile_plan, configure_gf180, configure_sky130, load_manifest
+from simcairn.api import (
+    Runner,
+    XyceCommand,
+    characterize_xyce,
+    compile_plan,
+    configure_gf180,
+    configure_sky130,
+    load_manifest,
+)
+from simcairn.characterization import (
+    ACSweepAnalysis,
+    CharacterizationError,
+    CharacterizationInput,
+    CharacterizationLimits,
+    CharacterizationPlan,
+    DCSweepAnalysis,
+    NoiseAnalysis,
+    NormalizedTrace,
+    OperatingPointAnalysis,
+    PVTCorner,
+    TraceOutput,
+    TransientAnalysis,
+    load_characterization_plan,
+    normalize_result_table,
+    render_xyce_deck,
+)
 
 __all__ = [
+    "ACSweepAnalysis",
+    "CharacterizationError",
+    "CharacterizationInput",
+    "CharacterizationLimits",
+    "CharacterizationPlan",
+    "DCSweepAnalysis",
+    "NoiseAnalysis",
+    "NormalizedTrace",
+    "OperatingPointAnalysis",
+    "PVTCorner",
     "Runner",
+    "TraceOutput",
+    "TransientAnalysis",
+    "XyceCommand",
     "__version__",
+    "characterize_xyce",
     "compile_plan",
     "configure_gf180",
     "configure_sky130",
+    "load_characterization_plan",
     "load_manifest",
+    "normalize_result_table",
+    "render_xyce_deck",
 ]

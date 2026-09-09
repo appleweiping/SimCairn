@@ -11,12 +11,13 @@ import tempfile
 import time
 from pathlib import Path
 
-from simcairn.adapters import AdapterError, create_adapter
+from simcairn.adapters import AdapterError, create_adapter, xyce_measurement_filename
 from simcairn.fingerprints import sha256_file, stable_json
 from simcairn.manifest import SimulatorConfig
 from simcairn.model import Activity, ActivityOutcome, strict_json_loads
 from simcairn.store import ArtifactStore, StoreError
 from simcairn.templates import render_template
+from simcairn.xyce import XyceExecutionError, _run_process
 
 
 class ExecutionError(RuntimeError):
@@ -69,45 +70,57 @@ class ActivityExecutor:
             tuple(
                 sorted((str(name), str(value)) for name, value in payload["environment"].items())
             ),
+            None if payload.get("measure_analysis") is None else str(payload["measure_analysis"]),
         )
         adapter = create_adapter(config)
         command = adapter.command(sandbox, payload)
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            cwd=sandbox,
-            env=self._environment(dict(config.environment)),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=activity.timeout_seconds
-            )
-        except asyncio.CancelledError:
-            process.terminate()
+        if config.adapter == "xyce":
+            expected_identity = activity.identity.get("adapter_identity")
+            observed_identity = await asyncio.to_thread(adapter.identity)
+            if expected_identity != observed_identity:
+                raise ExecutionError("Xyce adapter identity changed after planning")
             try:
-                await asyncio.wait_for(process.wait(), timeout=2)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
-            raise
-        except TimeoutError as error:
-            process.terminate()
+                result = await _run_process(
+                    tuple(command),
+                    cwd=sandbox,
+                    environment=self._environment(dict(config.environment)),
+                    timeout_seconds=activity.timeout_seconds,
+                    maximum_log_bytes=8 * 1024 * 1024,
+                    watched=(
+                        (sandbox / "xyce.log", 16 * 1024 * 1024, "log"),
+                        (
+                            sandbox / xyce_measurement_filename(str(payload["measure_analysis"])),
+                            16 * 1024 * 1024,
+                            "measurement output",
+                        ),
+                    ),
+                )
+            except XyceExecutionError as error:
+                raise ExecutionError(str(error)) from error
+            final_identity = await asyncio.to_thread(adapter.identity)
+            if expected_identity != final_identity:
+                raise ExecutionError("Xyce adapter identity changed during execution")
+            stdout, stderr = result.stdout, result.stderr
+            returncode = result.returncode
+        else:
             try:
-                await asyncio.wait_for(process.wait(), timeout=2)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
-            raise ExecutionError(
-                f"simulator timed out after {activity.timeout_seconds:g} seconds"
-            ) from error
+                result = await _run_process(
+                    tuple(command),
+                    cwd=sandbox,
+                    environment=self._environment(dict(config.environment)),
+                    timeout_seconds=activity.timeout_seconds,
+                    maximum_log_bytes=8 * 1024 * 1024,
+                    process_name="simulator",
+                )
+            except XyceExecutionError as error:
+                raise ExecutionError(str(error)) from error
+            stdout, stderr = result.stdout, result.stderr
+            returncode = result.returncode
         (sandbox / "stdout.log").write_bytes(stdout)
         (sandbox / "stderr.log").write_bytes(stderr)
-        if process.returncode != 0:
+        if returncode != 0:
             summary = stderr.decode("utf-8", errors="replace").strip()
-            raise ExecutionError(
-                f"simulator exited with status {process.returncode}: {summary[-500:]}"
-            )
+            raise ExecutionError(f"simulator exited with status {returncode}: {summary[-500:]}")
         try:
             adapter.collect(sandbox, payload)
         except AdapterError as error:

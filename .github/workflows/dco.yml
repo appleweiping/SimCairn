@@ -1,0 +1,140 @@
+name: DCO
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  commits:
+    name: Verify every commit sign-off
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Mark the event head pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f "state=pending" -f "context=DCO / commits" \
+            -f "description=DCO verification is running" >/dev/null
+      # pull_request_target deliberately checks out only the trusted base SHA.
+      # No pull-request checkout, hook, dependency, or executable is run.
+      - name: Check out the trusted base verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Set up exact Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11.16"
+      - name: Download immutable pull-request commit metadata
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          umask 077
+          metadata="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '[.head.sha, (.commits | tostring), .base.sha, .base.ref, .base.repo.full_name] | @tsv')"
+          IFS=$'\t' read -r observed_head expected_count observed_base_sha observed_base_ref observed_base_repository <<< "$metadata"
+          if [ "$observed_head" != "$HEAD_SHA" ] || \
+            [ "$observed_base_sha" != "$BASE_SHA" ] || \
+            [ "$observed_base_ref" != "$BASE_REF" ] || \
+            [ "$observed_base_repository" != "$BASE_REPOSITORY" ] || \
+            ! [[ "$expected_count" =~ ^[1-9][0-9]{0,2}$ ]]; then
+            echo "pull-request base, head, or commit count changed before verification" >&2
+            exit 1
+          fi
+          gh api --paginate --slurp \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" \
+            > "$RUNNER_TEMP/pull-commits.json"
+          final="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '[.head.sha, (.commits | tostring), .base.sha, .base.ref, .base.repo.full_name] | @tsv')"
+          IFS=$'\t' read -r final_head final_count final_base_sha final_base_ref final_base_repository <<< "$final"
+          if [ "$final_head" != "$HEAD_SHA" ] || \
+            [ "$final_count" != "$expected_count" ] || \
+            [ "$final_base_sha" != "$BASE_SHA" ] || \
+            [ "$final_base_ref" != "$BASE_REF" ] || \
+            [ "$final_base_repository" != "$BASE_REPOSITORY" ]; then
+            echo "pull-request base, head, or commit count changed during metadata download" >&2
+            exit 1
+          fi
+          echo "count=$expected_count" >> "$GITHUB_OUTPUT"
+      - name: Require an author-matching DCO trailer on every commit
+        id: verify
+        continue-on-error: true
+        run: >-
+          python -I -S src/simcairn/dco.py "$RUNNER_TEMP/pull-commits.json"
+          "${{ steps.metadata.outputs.count }}"
+          "${{ github.event.pull_request.head.sha }}"
+      - name: Publish result on the immutable pull-request head
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_COUNT: ${{ steps.metadata.outputs.count }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          METADATA_OUTCOME: ${{ steps.metadata.outcome }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          state=failure
+          description="DCO verification did not complete"
+          final=""
+          if final="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '[.head.sha, (.commits | tostring), .base.sha, .base.ref, .base.repo.full_name] | @tsv')"; then
+            IFS=$'\t' read -r final_head final_count final_base_sha final_base_ref final_base_repository <<< "$final"
+            if [ "$final_head" != "$HEAD_SHA" ] || \
+              [ "$final_count" != "$EXPECTED_COUNT" ] || \
+              [ "$final_base_sha" != "$BASE_SHA" ] || \
+              [ "$final_base_ref" != "$BASE_REF" ] || \
+              [ "$final_base_repository" != "$BASE_REPOSITORY" ]; then
+              description="Pull-request base, head, or commit count changed"
+            elif [ "$METADATA_OUTCOME" = success ] && [ "$VERIFY_OUTCOME" = success ]; then
+              state=success
+              description="Every commit has an author-matching DCO sign-off"
+            fi
+          else
+            description="Could not revalidate pull-request metadata"
+          fi
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f "state=$state" -f "context=DCO / commits" -f "description=$description" >/dev/null
+          test "$state" = success

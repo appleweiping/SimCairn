@@ -6,6 +6,7 @@
 
 ## Verification
 
+- [ ] Every commit has an author-matching `Signed-off-by` DCO trailer.
 - [ ] `ruff check .`
 - [ ] `ruff format --check .`
 - [ ] `pytest --cov=simcairn --cov-report=term-missing`

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simcairn"
-version = "0.3.0"
+version = "0.4.0"
 description = "Resumable local orchestration for reproducible SPICE activities"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -55,11 +55,13 @@ include = [
   "/examples",
   "/benchmarks",
   "/docs",
+  "/.github/workflows",
+  "/.github/allowed_signers",
+  "/uv.lock",
   "/*.md",
   "/CITATION.cff",
   "/LICENSE",
 ]
-exclude = ["/.github", "/uv.lock"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"

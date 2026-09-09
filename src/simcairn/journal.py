@@ -10,6 +10,7 @@ import secrets
 import socket
 import subprocess  # nosec B404
 import sys
+import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager, suppress
 from ctypes import wintypes
@@ -22,6 +23,8 @@ from typing import Any
 from simcairn.model import canonical_json, strict_json_loads
 
 # Security rationale for B404/B603: process probes use fixed argv and shell=False.
+_UNLINK_RETRY_SECONDS = 2.0
+_UNLINK_RETRY_INTERVAL_SECONDS = 0.005
 
 
 class JournalError(RuntimeError):
@@ -181,6 +184,57 @@ def _read_owner(path: Path) -> tuple[bytes, object]:
         return raw, strict_json_loads(raw)
     except (json.JSONDecodeError, ValueError):
         return raw, None
+
+
+def _unlink_owned_marker(path: Path, expected: bytes) -> bool:
+    """Remove an unchanged marker despite transient Windows reader sharing."""
+
+    deadline = time.monotonic() + _UNLINK_RETRY_SECONDS
+    while True:
+        current, _owner = _read_owner(path)
+        if current != expected:
+            if not path.exists():
+                return False
+            raise JournalError("run lock owner marker changed before release")
+        try:
+            path.unlink()
+            return True
+        except FileNotFoundError:
+            return False
+        except PermissionError as error:
+            if time.monotonic() >= deadline:
+                raise JournalError("run lock owner marker remained busy during release") from error
+            time.sleep(_UNLINK_RETRY_INTERVAL_SECONDS)
+
+
+def _rmdir_owned_empty_lock(path: Path, expected_identity: tuple[int, int]) -> None:
+    """Remove our now-empty lock directory despite transient Windows sharing."""
+
+    deadline = time.monotonic() + _UNLINK_RETRY_SECONDS
+    while True:
+        try:
+            status = path.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            raise JournalError("cannot verify run lock directory during release") from error
+        if path.is_symlink() or (status.st_dev, status.st_ino) != expected_identity:
+            raise JournalError("run lock directory changed before release")
+        try:
+            if next(path.iterdir(), None) is not None:
+                raise JournalError("run lock directory is not empty during release")
+            path.rmdir()
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError as error:
+            if time.monotonic() >= deadline:
+                raise JournalError("run lock directory remained busy during release") from error
+            time.sleep(_UNLINK_RETRY_INTERVAL_SECONDS)
+        except JournalError:
+            raise
+        except OSError as error:
+            raise JournalError("cannot remove run lock directory during release") from error
 
 
 def _directory_owner(path: Path) -> tuple[Path | None, bytes, object]:
@@ -471,14 +525,22 @@ class RunLock(AbstractContextManager["RunLock"]):
         traceback: TracebackType | None,
     ) -> None:
         del exc_type, exc_value, traceback
-        if self.acquired:
-            marker = self._marker
-            if marker is not None:
-                current, _owner = _read_owner(marker)
-                if self._payload is not None and current == self._payload:
-                    marker.unlink(missing_ok=True)
-                    with suppress(OSError):
-                        self.path.rmdir()
+        if not self.acquired:
+            return
+        marker = self._marker
+        payload = self._payload
+        try:
+            if marker is not None and payload is not None:
+                try:
+                    status = self.path.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    return
+                except OSError as error:
+                    raise JournalError("cannot verify run lock directory during release") from error
+                identity = (status.st_dev, status.st_ino)
+                if _unlink_owned_marker(marker, payload):
+                    _rmdir_owned_empty_lock(self.path, identity)
+        finally:
             self.acquired = False
             self._payload = None
             self._marker = None
