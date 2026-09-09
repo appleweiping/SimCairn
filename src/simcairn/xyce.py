@@ -12,6 +12,7 @@ import platform
 import re
 import shutil
 import signal
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -161,7 +162,7 @@ class _ProcessResult:
 
 
 def _attach_windows_job(process_id: int) -> int | None:  # pragma: no cover - native OS glue
-    if os.name != "nt":
+    if sys.platform != "win32":
         return None
     import ctypes
     from ctypes import wintypes
@@ -253,6 +254,8 @@ def _windows_job_action(  # pragma: no cover - native OS glue
 ) -> None:
     if handle is None:
         return
+    if sys.platform != "win32":
+        raise XyceExecutionError("Windows process job actions are unavailable on this platform")
     import ctypes
     from ctypes import wintypes
 
