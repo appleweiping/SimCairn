@@ -208,6 +208,7 @@ jobs:
               "tests/test_standalone_workflows.py",
               "tests/test_workflow_security.py",
               "tests/test_xyce.py",
+              "tests/test_xyce_windows_launch.py",
               "uv.lock",
           }
           if missing := required_source - names:

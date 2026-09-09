@@ -54,6 +54,7 @@ def test_source_archive_includes_the_files_needed_by_its_tests() -> None:
         "tests/fixtures/fake_xyce.py",
         "tests/test_characterization.py",
         "tests/test_xyce.py",
+        "tests/test_xyce_windows_launch.py",
         "uv.lock",
     ):
         assert f'"{name}",' in release
